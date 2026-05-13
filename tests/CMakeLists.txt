@@ -35,3 +35,27 @@ ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions -O2 \
     -o ${CMAKE_CURRENT_BINARY_DIR}/trace_elision_check.o \
 && ! nm ${CMAKE_CURRENT_BINARY_DIR}/trace_elision_check.o 2>/dev/null | grep -q trace_emit"
 )
+
+add_executable(test_messaging
+    unit/test_messaging.cpp
+)
+target_link_libraries(test_messaging PRIVATE framework doctest)
+
+add_test(NAME messaging COMMAND test_messaging)
+
+# Compile-fail tests: each file must be rejected by the compiler.
+add_test(NAME copy_envelope_fails
+    COMMAND sh -c "\
+! ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions \
+    -I${CMAKE_SOURCE_DIR}/include \
+    -c ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_envelope.cpp \
+    -o /dev/null 2>&1"
+)
+
+add_test(NAME copy_message_ptr_fails
+    COMMAND sh -c "\
+! ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions \
+    -I${CMAKE_SOURCE_DIR}/include \
+    -c ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_message_ptr.cpp \
+    -o /dev/null 2>&1"
+)

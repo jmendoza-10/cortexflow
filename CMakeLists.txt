@@ -32,6 +32,7 @@ endif()
 add_library(framework STATIC
     src/framework/fault.cpp
     src/framework/trace.cpp
+    src/framework/messaging.cpp
 )
 target_include_directories(framework PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
