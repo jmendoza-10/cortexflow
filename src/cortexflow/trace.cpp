@@ -1,4 +1,4 @@
-#include <framework/trace.hpp>
+#include <cortexflow/trace.hpp>
 
 #include <chrono>
 #include <cstdio>
@@ -33,7 +33,7 @@ void platform_trace_sink(
                  from, to, type_name, message);
 }
 
-namespace framework {
+namespace cortexflow {
 namespace detail {
 
 void trace_emit(TraceLevel level, const char* kind,
@@ -44,4 +44,4 @@ void trace_emit(TraceLevel level, const char* kind,
 }
 
 } // namespace detail
-} // namespace framework
+} // namespace cortexflow

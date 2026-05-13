@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-#include <framework/type_name.hpp>
+#include <cortexflow/type_name.hpp>
 
 // --- Test types: primitives handled directly; user types defined here ---
 
@@ -23,15 +23,15 @@ struct Outer {
 } // namespace app
 
 // A message using the CRTP base
-struct PingMessage : framework::Identified<PingMessage> {};
+struct PingMessage : cortexflow::Identified<PingMessage> {};
 
 namespace app {
-struct StatusUpdate : framework::Identified<StatusUpdate> {};
+struct StatusUpdate : cortexflow::Identified<StatusUpdate> {};
 } // namespace app
 
-using framework::type_name;
-using framework::type_id;
-using framework::Identified;
+using cortexflow::type_name;
+using cortexflow::type_id;
+using cortexflow::Identified;
 
 // ---------------------------------------------------------------------------
 // Helper: report expected vs actual on mismatch

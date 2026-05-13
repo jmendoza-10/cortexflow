@@ -224,7 +224,7 @@ The framework generates a `type_id → handler` table at module construction. Di
 | Bare-metal   | Per-type slab pool, compile-time sized    |
 | FreeRTOS     | Per-type slab or RTOS heap, configurable  |
 
-Pool overflow on bare-metal = `FRAMEWORK_ASSERT` (system failure). The allocator API includes a `lock()`/`unlock()` pair for foreign-thread safety.
+Pool overflow on bare-metal = `CORTEXFLOW_ASSERT` (system failure). The allocator API includes a `lock()`/`unlock()` pair for foreign-thread safety.
 
 `make_message<T>(args...)` is the only factory. Modules never see `new` or `delete`.
 
@@ -299,7 +299,7 @@ struct ChargingActiveLocals {
 - **Identification:** RAII `Subscription` handle. Move-only. Drop releases the slot.
 - **Fanout order:** registration order. Documented as "do not depend on this."
 - **Subscribe-during-write:** new subscriptions made inside a writer's handler do **not** see this write; they see subsequent ones.
-- **Overflow:** subscription pool exhaustion = `FRAMEWORK_ASSERT` (system failure).
+- **Overflow:** subscription pool exhaustion = `CORTEXFLOW_ASSERT` (system failure).
 
 ### 7.6 Notification payload
 
@@ -451,7 +451,7 @@ The entire system shape lives in one file as a single type:
 ```cpp
 // app/system_composition.hpp
 #pragma once
-#include "framework/runtime.hpp"
+#include "cortexflow/runtime.hpp"
 
 #include "modules/ignition_monitor.hpp"
 #include "modules/charge_controller.hpp"
@@ -459,8 +459,8 @@ The entire system shape lives in one file as a single type:
 #include "modules/speed_sensor.hpp"
 #include "platform/can_adapter.hpp"    // typedef-swapped per target
 
-using App = framework::Runtime<
-  framework::ModuleList<
+using App = cortexflow::Runtime<
+  cortexflow::ModuleList<
     IgnitionMonitor,
     ChargeController,
     BatteryManager,
@@ -468,14 +468,14 @@ using App = framework::Runtime<
     platform::CanAdapter,
     platform::TimerBackend
   >,
-  framework::CacheKeyList<
-    framework::Owned<VehicleSpeed,   SpeedSensor>,
-    framework::Owned<BatteryLevel,   BatteryManager>,
-    framework::Owned<ChargingActive, ChargeController>
+  cortexflow::CacheKeyList<
+    cortexflow::Owned<VehicleSpeed,   SpeedSensor>,
+    cortexflow::Owned<BatteryLevel,   BatteryManager>,
+    cortexflow::Owned<ChargingActive, ChargeController>
   >,
-  framework::Config<
-    framework::MaxSubscriptions<32>,
-    framework::DrainBudget<SIZE_MAX>
+  cortexflow::Config<
+    cortexflow::MaxSubscriptions<32>,
+    cortexflow::DrainBudget<SIZE_MAX>
   >
 >;
 ```
@@ -483,10 +483,10 @@ using App = framework::Runtime<
 ```cpp
 // app/main.cpp
 #include "system_composition.hpp"
-#include "framework/clock.hpp"
+#include "cortexflow/clock.hpp"
 
 int main() {
-  App rt{ framework::SteadyClock{} };
+  App rt{ cortexflow::SteadyClock{} };
   rt.start();
   rt.run();
   rt.shutdown();
@@ -513,7 +513,7 @@ Adding a module: one line in `ModuleList`. Adding a key: one line in `CacheKeyLi
 
 ### 12.2 Compile-time selection
 
-Selected via build flag (`-DFRAMEWORK_TRACE_LEVEL=DISPATCH`). The level is a `constexpr` constant; trace points use `if constexpr` so unused levels compile out entirely. Trace points are still syntax-checked at the lowest level — no preprocessor `#ifdef` walls.
+Selected via build flag (`-DCORTEXFLOW_TRACE_LEVEL=DISPATCH`). The level is a `constexpr` constant; trace points use `if constexpr` so unused levels compile out entirely. Trace points are still syntax-checked at the lowest level — no preprocessor `#ifdef` walls.
 
 ### 12.3 Sinks
 
@@ -543,13 +543,13 @@ Application faults are not the framework's concern. Modules write to their cache
 ### 13.2 Single assertion mechanism
 
 ```cpp
-FRAMEWORK_ASSERT(cond, "reason string");
+CORTEXFLOW_ASSERT(cond, "reason string");
 ```
 
 Expands to:
 
 ```cpp
-((cond) ? (void)0 : ::framework::detail::fault(__FILE__, __LINE__, "reason string"))
+((cond) ? (void)0 : ::cortexflow::detail::fault(__FILE__, __LINE__, "reason string"))
 ```
 
 `fault(...)` is `[[noreturn]]` and dispatches to a platform handler:
@@ -571,9 +571,9 @@ Every framework-level error is a system invariant violation, which by definition
 
 - **CMake 3.20+.**
 - **C++17 minimum**, prefer C++20 features where available (concepts for cleaner template errors).
-- **`-DFRAMEWORK_TARGET=host|posix|freertos|bare_metal`** selects the platform backend.
-- **`-DFRAMEWORK_TRACE_LEVEL=OFF|ERROR|WARN|INFO|DISPATCH|FULL`** sets compile-time trace level.
-- **`-DFRAMEWORK_BUILD_TESTS=ON|OFF`** opts into test build (off by default for cross-compiles).
+- **`-DCORTEXFLOW_TARGET=host|posix|freertos|bare_metal`** selects the platform backend.
+- **`-DCORTEXFLOW_TRACE_LEVEL=OFF|ERROR|WARN|INFO|DISPATCH|FULL`** sets compile-time trace level.
+- **`-DCORTEXFLOW_BUILD_TESTS=ON|OFF`** opts into test build (off by default for cross-compiles).
 
 Each platform backend is its own static library; the user's app links the framework lib + the selected backend.
 
@@ -591,7 +591,7 @@ cortexflow/
 │   │   ├── freertos.cmake
 │   │   └── bare_metal.cmake
 │   └── helpers.cmake
-├── include/framework/
+├── include/cortexflow/
 │   ├── runtime.hpp
 │   ├── module.hpp
 │   ├── envelope.hpp
@@ -607,7 +607,7 @@ cortexflow/
 │   ├── assert.hpp
 │   ├── allocator.hpp
 │   └── config.hpp
-├── src/framework/
+├── src/cortexflow/
 │   └── (non-template implementations: queue, trace sink dispatch, fault handler)
 ├── platform/
 │   ├── host/
@@ -628,7 +628,7 @@ cortexflow/
 └── README.md
 ```
 
-- **Public API:** `include/framework/`. Everything outside this path is implementation.
+- **Public API:** `include/cortexflow/`. Everything outside this path is implementation.
 - **`platform/`** is parallel to `src/`, not nested, because backends are independently selectable build targets.
 - **`examples/minimal_app/`** exists from day one. Built in CI. Doubles as validation and reference.
 
@@ -702,7 +702,7 @@ Each major decision merits a short ADR under `docs/adr/`. Suggested initial set:
 | 013 | Two-phase lifecycle                                               |
 | 014 | Type-level composition (`Runtime<ModuleList, CacheKeyList, ...>`) |
 | 015 | Six-level trace hierarchy with `if constexpr` disable             |
-| 016 | Single `FRAMEWORK_ASSERT`; framework errors are unrecoverable     |
+| 016 | Single `CORTEXFLOW_ASSERT`; framework errors are unrecoverable     |
 | 017 | Boundary modules by convention, no enforced base class            |
 | 018 | One declared writer per cache key, convention not compile-time    |
 | 019 | Condition-variable wake (no eventfd/epoll dependency)             |

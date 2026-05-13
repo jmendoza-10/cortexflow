@@ -97,7 +97,7 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 
 ### Errors and faults
 
-49. As an embedded engineer, I want a single `FRAMEWORK_ASSERT(cond, reason)` primitive used by both the framework and my modules, so that assertions surface through one channel.
+49. As an embedded engineer, I want a single `CORTEXFLOW_ASSERT(cond, reason)` primitive used by both the framework and my modules, so that assertions surface through one channel.
 50. As an embedded engineer, I want fault handling to dispatch through a weak-linked platform handler, so that bare-metal builds can override behavior (typically: disable interrupts, log, reset).
 51. As an embedded engineer, I want every framework-level error to be a system invariant violation that aborts cleanly, so that I never need to thread error codes through send/post/subscribe APIs.
 
@@ -142,21 +142,21 @@ The v1 implementation is organized around the following subsystems. Each is fold
 ### Composition shape
 
 ```cpp
-using App = framework::Runtime<
-  framework::ModuleList<
+using App = cortexflow::Runtime<
+  cortexflow::ModuleList<
     IgnitionMonitor,
     ChargeController,
     BatteryManager,
     platform::CanAdapter,
     platform::TimerBackend
   >,
-  framework::CacheKeyList<
-    framework::Owned<VehicleSpeed,   SpeedSensor>,
-    framework::Owned<BatteryLevel,   BatteryManager>,
-    framework::Owned<ChargingActive, ChargeController>
+  cortexflow::CacheKeyList<
+    cortexflow::Owned<VehicleSpeed,   SpeedSensor>,
+    cortexflow::Owned<BatteryLevel,   BatteryManager>,
+    cortexflow::Owned<ChargingActive, ChargeController>
   >,
-  framework::Config<
-    framework::MaxSubscriptions<32>
+  cortexflow::Config<
+    cortexflow::MaxSubscriptions<32>
   >
 >;
 ```
@@ -282,11 +282,11 @@ Nineteen ADR stubs are listed in the design doc's decision log. Worth writing th
 
 ### Repo structure
 
-The proposed layout in the design doc places public API under `include/framework/`, non-template implementation under `src/framework/`, platform backends in a parallel `platform/<target>/` tree, tests under `tests/{unit,integration,compile_fail}/`, and a minimal example app under `examples/minimal_app/`. The example app is built in CI from day one and doubles as the integration fixture.
+The proposed layout in the design doc places public API under `include/cortexflow/`, non-template implementation under `src/cortexflow/`, platform backends in a parallel `platform/<target>/` tree, tests under `tests/{unit,integration,compile_fail}/`, and a minimal example app under `examples/minimal_app/`. The example app is built in CI from day one and doubles as the integration fixture.
 
 ### Build flags
 
-Two CMake flags drive build configuration: `FRAMEWORK_TARGET={host,posix,freertos,bare_metal}` selects the platform backend, and `FRAMEWORK_TRACE_LEVEL={OFF,ERROR,WARN,INFO,DISPATCH,FULL}` selects the trace verbosity. A third flag `FRAMEWORK_BUILD_TESTS={ON,OFF}` is `OFF` by default (so cross-compile builds don't pull doctest unnecessarily) and `ON` for host builds.
+Two CMake flags drive build configuration: `CORTEXFLOW_TARGET={host,posix,freertos,bare_metal}` selects the platform backend, and `CORTEXFLOW_TRACE_LEVEL={OFF,ERROR,WARN,INFO,DISPATCH,FULL}` selects the trace verbosity. A third flag `CORTEXFLOW_BUILD_TESTS={ON,OFF}` is `OFF` by default (so cross-compile builds don't pull doctest unnecessarily) and `ON` for host builds.
 
 ### Polish areas worth front-loading
 

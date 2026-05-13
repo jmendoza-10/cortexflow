@@ -1,6 +1,6 @@
 # Rename: `framework` → `cortexflow` (namespace, library, headers, macros)
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: N/A — refactoring for naming alignment with the project
 
 ## What to build
@@ -45,3 +45,26 @@ Should run **before** any further implementation issues (#04 onward), otherwise 
 ## Blocked by
 
 None — can start immediately. **Recommend running before issue #04 and beyond** so new features inherit the renamed namespace from the start.
+
+## Comments
+
+**2026-05-13 — from sandcastle agent**
+
+All acceptance criteria satisfied:
+
+- **Namespace**: `framework` → `cortexflow` in all 4 headers and 3 source files (declarations, definitions, fully-qualified `::framework::` references).
+- **Directories**: `include/framework/` → `include/cortexflow/`, `src/framework/` → `src/cortexflow/` via `git mv`.
+- **CMake target**: `add_library(cortexflow ...)`, all `target_link_libraries` updated. Cache variables renamed: `CORTEXFLOW_BUILD_TESTS`, `CORTEXFLOW_TRACE_LEVEL`, `CORTEXFLOW_TRACE_LEVEL_VALUE`.
+- **Macros**: All `FRAMEWORK_TRACE*` → `CORTEXFLOW_TRACE*`, `FRAMEWORK_ASSERT` → `CORTEXFLOW_ASSERT`.
+- **Docs**: Updated code identifiers and paths in `README.md`, `docs/prd.md`, `docs/architecture.md`, `docs/adr/README.md`. Generic English "framework" left intact. Completed issues left alone.
+- **Open issues**: Issue 11 (`clock-manual-steady`) updated — `FRAMEWORK_ASSERT` → `CORTEXFLOW_ASSERT` and filename ref `02-framework-...` → `02-cortexflow-...`. Issues 13 and 14 only had generic English "framework" — no code identifiers to update.
+- **Issue rename**: `02-framework-assert-fault-path.md` → `02-cortexflow-assert-fault-path.md` via `git mv`.
+- **CI workflow**: `FRAMEWORK_BUILD_TESTS` → `CORTEXFLOW_BUILD_TESTS`, `FRAMEWORK_TRACE_LEVEL` → `CORTEXFLOW_TRACE_LEVEL`.
+- **Build & tests**: All 7 tests pass (type_name, assert, trace, trace_elision, messaging, copy_envelope_fails, copy_message_ptr_fails).
+- **Final sweep**: `grep -rln "framework" --include='*.hpp' --include='*.cpp' --include='CMakeLists.txt' .` returns no matches.
+
+**Not changed (by design)**:
+- `CLAUDE.md` — contains no `framework` code identifiers, only the project description "CortexFlow".
+- `docs/architecture.md` line 526: `framework_trace_write` is a design-time function name that was never implemented (actual code uses `platform_trace_sink`). Left as historical design text.
+- Generic English "framework" in docs and ADR decision titles.
+- Completed issue files (01, 02, 03, 04, 18) — all have `Status: ready-for-human`.

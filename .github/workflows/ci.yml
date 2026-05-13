@@ -29,8 +29,8 @@ jobs:
         run: >
           cmake -B build
           -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
-          -DFRAMEWORK_BUILD_TESTS=ON
-          -DFRAMEWORK_TRACE_LEVEL=FULL
+          -DCORTEXFLOW_BUILD_TESTS=ON
+          -DCORTEXFLOW_TRACE_LEVEL=FULL
 
       - name: Build
         run: cmake --build build

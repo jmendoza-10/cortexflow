@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-#include <framework/trace.hpp>
+#include <cortexflow/trace.hpp>
 
 #include <cstring>
 #include <string>
@@ -43,17 +43,17 @@ static void reset_captures() {
 // ---------------------------------------------------------------------------
 
 TEST_CASE("TraceLevel enum has correct integer mapping") {
-    CHECK(static_cast<int>(framework::TraceLevel::Off) == 0);
-    CHECK(static_cast<int>(framework::TraceLevel::Error) == 1);
-    CHECK(static_cast<int>(framework::TraceLevel::Warn) == 2);
-    CHECK(static_cast<int>(framework::TraceLevel::Info) == 3);
-    CHECK(static_cast<int>(framework::TraceLevel::Dispatch) == 4);
-    CHECK(static_cast<int>(framework::TraceLevel::Full) == 5);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Off) == 0);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Error) == 1);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Warn) == 2);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Info) == 3);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Dispatch) == 4);
+    CHECK(static_cast<int>(cortexflow::TraceLevel::Full) == 5);
 }
 
 TEST_CASE("kTraceLevel is within valid range") {
-    CHECK(static_cast<int>(framework::kTraceLevel) >= 0);
-    CHECK(static_cast<int>(framework::kTraceLevel) <= 5);
+    CHECK(static_cast<int>(cortexflow::kTraceLevel) >= 0);
+    CHECK(static_cast<int>(cortexflow::kTraceLevel) <= 5);
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ TEST_CASE("kTraceLevel is within valid range") {
 
 TEST_CASE("trace_emit dispatches to platform_trace_sink") {
     reset_captures();
-    framework::detail::trace_emit(
-        framework::TraceLevel::Error, "fault", "A", "B", "T", "detail");
+    cortexflow::detail::trace_emit(
+        cortexflow::TraceLevel::Error, "fault", "A", "B", "T", "detail");
     CHECK(s_captures.size() == 1);
     CHECK(s_captures[0].level == 1);
     CHECK(s_captures[0].kind == "fault");
@@ -76,11 +76,11 @@ TEST_CASE("trace_emit dispatches to platform_trace_sink") {
 
 TEST_CASE("platform_trace_sink override receives all fields") {
     reset_captures();
-    framework::detail::trace_emit(
-        framework::TraceLevel::Dispatch, "envelope", "Sender", "Receiver",
+    cortexflow::detail::trace_emit(
+        cortexflow::TraceLevel::Dispatch, "envelope", "Sender", "Receiver",
         "CmdMsg", "seq=42");
     CHECK(s_captures.size() == 1);
-    CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Dispatch));
+    CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Dispatch));
     CHECK(s_captures[0].kind == "envelope");
     CHECK(s_captures[0].from == "Sender");
     CHECK(s_captures[0].to == "Receiver");
@@ -89,52 +89,52 @@ TEST_CASE("platform_trace_sink override receives all fields") {
 }
 
 // ---------------------------------------------------------------------------
-// Macro tests — level-aware so the suite passes at any FRAMEWORK_TRACE_LEVEL.
+// Macro tests — level-aware so the suite passes at any CORTEXFLOW_TRACE_LEVEL.
 // CI runs with FULL, exercising every branch.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FRAMEWORK_TRACE_ERROR emits at matching level") {
+TEST_CASE("CORTEXFLOW_TRACE_ERROR emits at matching level") {
     reset_captures();
-    FRAMEWORK_TRACE_ERROR("fault", "Src", "Dst", "MsgType", "err detail");
-    if constexpr (framework::TraceLevel::Error <= framework::kTraceLevel) {
+    CORTEXFLOW_TRACE_ERROR("fault", "Src", "Dst", "MsgType", "err detail");
+    if constexpr (cortexflow::TraceLevel::Error <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Error));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Error));
         CHECK(s_captures[0].kind == "fault");
     } else {
         CHECK(s_captures.empty());
     }
 }
 
-TEST_CASE("FRAMEWORK_TRACE_WARN emits at matching level") {
+TEST_CASE("CORTEXFLOW_TRACE_WARN emits at matching level") {
     reset_captures();
-    FRAMEWORK_TRACE_WARN("anomaly", "A", "B", "WarnType", "recovered");
-    if constexpr (framework::TraceLevel::Warn <= framework::kTraceLevel) {
+    CORTEXFLOW_TRACE_WARN("anomaly", "A", "B", "WarnType", "recovered");
+    if constexpr (cortexflow::TraceLevel::Warn <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Warn));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Warn));
     } else {
         CHECK(s_captures.empty());
     }
 }
 
-TEST_CASE("FRAMEWORK_TRACE_INFO emits at matching level") {
+TEST_CASE("CORTEXFLOW_TRACE_INFO emits at matching level") {
     reset_captures();
-    FRAMEWORK_TRACE_INFO("lifecycle", "Runtime", "-", "App", "started");
-    if constexpr (framework::TraceLevel::Info <= framework::kTraceLevel) {
+    CORTEXFLOW_TRACE_INFO("lifecycle", "Runtime", "-", "App", "started");
+    if constexpr (cortexflow::TraceLevel::Info <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Info));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Info));
         CHECK(s_captures[0].kind == "lifecycle");
     } else {
         CHECK(s_captures.empty());
     }
 }
 
-TEST_CASE("FRAMEWORK_TRACE_DISPATCH emits at matching level") {
+TEST_CASE("CORTEXFLOW_TRACE_DISPATCH emits at matching level") {
     reset_captures();
-    FRAMEWORK_TRACE_DISPATCH("envelope", "Sender", "Receiver", "CmdMsg",
+    CORTEXFLOW_TRACE_DISPATCH("envelope", "Sender", "Receiver", "CmdMsg",
                              "dispatched");
-    if constexpr (framework::TraceLevel::Dispatch <= framework::kTraceLevel) {
+    if constexpr (cortexflow::TraceLevel::Dispatch <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Dispatch));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Dispatch));
         CHECK(s_captures[0].from == "Sender");
         CHECK(s_captures[0].to == "Receiver");
         CHECK(s_captures[0].type_name == "CmdMsg");
@@ -143,13 +143,13 @@ TEST_CASE("FRAMEWORK_TRACE_DISPATCH emits at matching level") {
     }
 }
 
-TEST_CASE("FRAMEWORK_TRACE_FULL emits at matching level") {
+TEST_CASE("CORTEXFLOW_TRACE_FULL emits at matching level") {
     reset_captures();
-    FRAMEWORK_TRACE_FULL("cache_write", "Owner", "-", "TempKey",
+    CORTEXFLOW_TRACE_FULL("cache_write", "Owner", "-", "TempKey",
                          "old=20 new=25");
-    if constexpr (framework::TraceLevel::Full <= framework::kTraceLevel) {
+    if constexpr (cortexflow::TraceLevel::Full <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Full));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Full));
         CHECK(s_captures[0].kind == "cache_write");
         CHECK(s_captures[0].message == "old=20 new=25");
     } else {
@@ -157,12 +157,12 @@ TEST_CASE("FRAMEWORK_TRACE_FULL emits at matching level") {
     }
 }
 
-TEST_CASE("FRAMEWORK_TRACE generic macro works") {
+TEST_CASE("CORTEXFLOW_TRACE generic macro works") {
     reset_captures();
-    FRAMEWORK_TRACE(Error, "test", "X", "Y", "Z", "generic");
-    if constexpr (framework::TraceLevel::Error <= framework::kTraceLevel) {
+    CORTEXFLOW_TRACE(Error, "test", "X", "Y", "Z", "generic");
+    if constexpr (cortexflow::TraceLevel::Error <= cortexflow::kTraceLevel) {
         CHECK(s_captures.size() == 1);
-        CHECK(s_captures[0].level == static_cast<int>(framework::TraceLevel::Error));
+        CHECK(s_captures[0].level == static_cast<int>(cortexflow::TraceLevel::Error));
         CHECK(s_captures[0].message == "generic");
     } else {
         CHECK(s_captures.empty());
@@ -171,10 +171,10 @@ TEST_CASE("FRAMEWORK_TRACE generic macro works") {
 
 TEST_CASE("multiple trace calls accumulate") {
     reset_captures();
-    framework::detail::trace_emit(
-        framework::TraceLevel::Error, "a", "-", "-", "-", "1");
-    framework::detail::trace_emit(
-        framework::TraceLevel::Warn, "b", "-", "-", "-", "2");
+    cortexflow::detail::trace_emit(
+        cortexflow::TraceLevel::Error, "a", "-", "-", "-", "1");
+    cortexflow::detail::trace_emit(
+        cortexflow::TraceLevel::Warn, "b", "-", "-", "-", "2");
     CHECK(s_captures.size() == 2);
     CHECK(s_captures[0].kind == "a");
     CHECK(s_captures[1].kind == "b");

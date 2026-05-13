@@ -4,9 +4,9 @@
 #include <new>
 #include <utility>
 
-#include <framework/type_name.hpp>
+#include <cortexflow/type_name.hpp>
 
-namespace framework {
+namespace cortexflow {
 
 inline constexpr type_id_t kNoSender = 0;
 
@@ -165,4 +165,4 @@ public:
     static HeapAllocator& instance();
 };
 
-} // namespace framework
+} // namespace cortexflow
