@@ -1,0 +1,58 @@
+# Build outputs
+build/
+build-*/
+out/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Object files / libs / executables
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.elf
+*.map
+*.bin
+*.hex
+
+# Dependency files
+*.d
+
+# Debug
+*.dSYM/
+*.pdb
+*.ilk
+*.idb
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.cache/
+.ccls-cache/
+.clangd/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+*.gcda
+*.gcno
+*.gcov
+coverage/
+lcov.info
