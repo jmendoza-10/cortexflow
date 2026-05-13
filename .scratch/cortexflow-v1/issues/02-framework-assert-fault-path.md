@@ -1,6 +1,6 @@
 # Fault path: `FRAMEWORK_ASSERT` + weak-linked platform handler
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `docs/prd.md` — Fault subsystem; user stories 49, 50, 51
 
 ## What to build
@@ -21,3 +21,20 @@ Every framework-level error is a system invariant violation routed through this 
 ## Blocked by
 
 None — can start immediately.
+
+## Comments
+
+### 2026-05-13 — from sandcastle agent
+
+**Built:**
+
+- `include/framework/assert.hpp` — `FRAMEWORK_ASSERT(cond, reason)` macro and `[[noreturn]] fault()` declaration. The macro expands to a ternary that evaluates `cond` exactly once and compiles to a single conditional branch with no allocations on the hot path.
+- `src/framework/fault.cpp` — `fault()` implementation that dispatches to `platform_fault_handler`. The default handler is `__attribute__((weak))` with `extern "C"` linkage; it writes reason + source location to stderr and calls `std::abort()`. Bare-metal builds override by providing a strong symbol with the same signature.
+- `tests/unit/test_assert.cpp` — Six tests: true/false paths, single-evaluation for both branches, source location correctness, never-returns verification, and weak-link override demonstration. Override test supplies a strong `platform_fault_handler` that captures args and `longjmp`s back to the test harness.
+- Promoted the `framework` CMake target from `INTERFACE` to `STATIC` (first compiled translation unit). All existing tests still pass.
+
+**Notes for reviewer:**
+
+- The default host handler writes directly to stderr rather than through the trace sink (issue 03 is not built yet). When trace infrastructure lands, the default handler should route through it.
+- `fault()` ends with `__builtin_unreachable()` after calling the platform handler, since the handler is not marked `[[noreturn]]` (to allow test overrides that `longjmp`). In production the handler must not return.
+- `longjmp`-based testing of `[[noreturn]]` functions is technically UB in C++ but is the standard approach without exceptions (`-fno-exceptions`). Works on GCC and Clang, which are the supported compilers.
