@@ -1,6 +1,6 @@
 # Identity: `type_name<T>()` + cross-toolchain canonical-form CI fixture
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `docs/prd.md` — Identity subsystem; user stories 14, 15, 16
 
 ## What to build
@@ -21,3 +21,26 @@ The CI fixture is a test that takes a representative set of types (templated, na
 ## Blocked by
 
 None — can start immediately.
+
+## Comments
+
+### 2026-05-13 — from sandcastle agent
+
+**What was built:**
+
+- `include/framework/type_name.hpp` — single header containing:
+  - `type_name<T>()`: constexpr function returning `std::string_view` with the fully-qualified type name, parsed from `__PRETTY_FUNCTION__` (GCC/Clang) or `__FUNCSIG__` (MSVC).
+  - `type_id_t`: `uint64_t` typedef, derived via FNV-1a hash of the type name.
+  - `type_id<T>()`: constexpr convenience function returning `type_id_t`.
+  - `Identified<Derived>`: CRTP base exposing `static constexpr kName` and `static constexpr kTypeId`.
+- `tests/unit/test_type_name.cpp` — canonical-form CI fixture with 31 assertions covering primitives, cv-qualifiers, pointers, references, namespaced types, nested types, and templates. Per-compiler expected strings for GCC and Clang. Failures show the type, expected string, and actual string.
+- `CMakeLists.txt` + `tests/CMakeLists.txt` — minimal build system with `-fno-rtti -fno-exceptions`.
+- `third_party/doctest/doctest.h` — doctest v2.4.11 header.
+
+**Verified:** all 31 tests pass on both GCC 12.2.0 and Clang 14.0.6.
+
+**Nothing skipped or deferred.**
+
+**Reviewer notes:**
+- GCC and Clang produce slightly different canonical forms for some builtin types (e.g., GCC: `long unsigned int`, Clang: `unsigned long`) and pointer/reference spacing (GCC: `int*`, Clang: `int *`). The test fixture has per-compiler expected strings via `#if defined(__clang__)` / `#elif defined(__GNUC__)`. This is by design — identity is stable within a given binary, and the CI fixture catches any compiler upgrade that shifts formatting.
+- MSVC support is wired (`__FUNCSIG__` path) but not tested — no MSVC toolchain in this container.
