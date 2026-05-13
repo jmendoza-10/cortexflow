@@ -29,8 +29,8 @@ Pre-implementation. The full design is locked and lives in [`docs/architecture.m
 ## Layout
 
 ```
-include/framework/    public API (header-only core)
-src/framework/        non-template implementations
+include/cortexflow/   public API (header-only core)
+src/cortexflow/       non-template implementations
 platform/<target>/    per-target backends (typedef-swapped at build time)
 cmake/targets/        per-target CMake configurations
 tests/                doctest-based unit and integration tests

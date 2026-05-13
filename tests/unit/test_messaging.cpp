@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-#include <framework/messaging.hpp>
+#include <cortexflow/messaging.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -30,7 +30,7 @@ struct OtherMsg {
 
 // --- Tracking allocator for verifying routing ---
 
-class TrackingAllocator : public framework::MessageAllocator {
+class TrackingAllocator : public cortexflow::MessageAllocator {
 public:
     int alloc_count = 0;
     int dealloc_count = 0;
@@ -51,13 +51,13 @@ public:
     void unlock() override { locked = false; }
 };
 
-using framework::Envelope;
-using framework::HeapAllocator;
-using framework::kNoSender;
-using framework::make_message;
-using framework::MessageAllocator;
-using framework::MessagePtr;
-using framework::type_id;
+using cortexflow::Envelope;
+using cortexflow::HeapAllocator;
+using cortexflow::kNoSender;
+using cortexflow::make_message;
+using cortexflow::MessageAllocator;
+using cortexflow::MessagePtr;
+using cortexflow::type_id;
 
 // ---------------------------------------------------------------------------
 // MessagePtr
@@ -264,6 +264,6 @@ TEST_CASE("HeapAllocator lock/unlock") {
 }
 
 TEST_CASE("default_allocator returns HeapAllocator instance") {
-    auto& alloc = framework::default_allocator();
+    auto& alloc = cortexflow::default_allocator();
     CHECK(&alloc == &HeapAllocator::instance());
 }

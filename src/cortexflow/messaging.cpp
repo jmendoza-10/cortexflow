@@ -1,10 +1,10 @@
-#include <framework/messaging.hpp>
-#include <framework/assert.hpp>
+#include <cortexflow/messaging.hpp>
+#include <cortexflow/assert.hpp>
 
 #include <mutex>
 #include <new>
 
-namespace framework {
+namespace cortexflow {
 
 namespace {
 
@@ -17,7 +17,7 @@ std::mutex& heap_mutex() {
 
 void* HeapAllocator::allocate(std::size_t size, std::size_t alignment) {
     void* ptr = ::operator new(size, std::align_val_t{alignment}, std::nothrow);
-    FRAMEWORK_ASSERT(ptr != nullptr, "heap allocation failed");
+    CORTEXFLOW_ASSERT(ptr != nullptr, "heap allocation failed");
     return ptr;
 }
 
@@ -43,4 +43,4 @@ MessageAllocator& default_allocator() {
     return HeapAllocator::instance();
 }
 
-} // namespace framework
+} // namespace cortexflow

@@ -5,14 +5,14 @@
 extern "C" void platform_fault_handler(
     const char* file, int line, const char* reason);
 
-namespace framework {
+namespace cortexflow {
 namespace detail {
 
 [[noreturn]] void fault(const char* file, int line, const char* reason);
 
 } // namespace detail
-} // namespace framework
+} // namespace cortexflow
 
-#define FRAMEWORK_ASSERT(cond, reason)                                         \
+#define CORTEXFLOW_ASSERT(cond, reason)                                        \
     ((cond) ? (void)0                                                          \
-            : ::framework::detail::fault(__FILE__, __LINE__, (reason)))
+            : ::cortexflow::detail::fault(__FILE__, __LINE__, (reason)))

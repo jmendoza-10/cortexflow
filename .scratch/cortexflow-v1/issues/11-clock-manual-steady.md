@@ -16,9 +16,9 @@ The `Clock` interface (`now()` returning a monotonic duration type) and two impl
 - [ ] `ManualClock` implementation; `advance(duration)` moves `now()` forward
 - [ ] Runtime constructor accepts a clock reference and stores it for later subsystems
 - [ ] `ManualClock::now()` is deterministic across reads with no intervening `advance`
-- [ ] Asserting on backward-advance (negative duration) via `FRAMEWORK_ASSERT`
+- [ ] Asserting on backward-advance (negative duration) via `CORTEXFLOW_ASSERT`
 - [ ] Unit tests for `ManualClock` determinism and `SteadyClock` monotonicity
 
 ## Blocked by
 
-- `02-framework-assert-fault-path.md`
+- `02-cortexflow-assert-fault-path.md`

@@ -56,7 +56,7 @@ The architectural spine locked in the v1 design produced the following decisions
 | 013 | Two-phase lifecycle                                               |
 | 014 | Type-level composition (`Runtime<ModuleList, CacheKeyList, ...>`) |
 | 015 | Six-level trace hierarchy with `if constexpr` disable             |
-| 016 | Single `FRAMEWORK_ASSERT`; framework errors are unrecoverable     |
+| 016 | Single `CORTEXFLOW_ASSERT`; framework errors are unrecoverable    |
 | 017 | Boundary modules by convention, no enforced base class            |
 | 018 | One declared writer per cache key, convention not compile-time    |
 | 019 | Condition-variable wake (no eventfd/epoll dependency)             |

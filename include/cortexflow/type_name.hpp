@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace framework {
+namespace cortexflow {
 
 using type_id_t = std::uint64_t;
 
@@ -55,4 +55,4 @@ struct Identified {
     static constexpr type_id_t kTypeId = detail::fnv1a(kName);
 };
 
-} // namespace framework
+} // namespace cortexflow

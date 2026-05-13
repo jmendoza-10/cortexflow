@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-#include <framework/assert.hpp>
+#include <cortexflow/assert.hpp>
 
 #include <csetjmp>
 #include <cstring>
@@ -53,32 +53,32 @@ static bool false_with_side_effect() {
 // Tests
 // ---------------------------------------------------------------------------
 
-TEST_CASE("FRAMEWORK_ASSERT does not fault on true condition") {
+TEST_CASE("CORTEXFLOW_ASSERT does not fault on true condition") {
     reset_fault_state();
-    FRAMEWORK_ASSERT(true, "should not fire");
+    CORTEXFLOW_ASSERT(true, "should not fire");
     CHECK_FALSE(s_fault_called);
 }
 
-TEST_CASE("FRAMEWORK_ASSERT evaluates condition exactly once — true") {
+TEST_CASE("CORTEXFLOW_ASSERT evaluates condition exactly once — true") {
     s_eval_count = 0;
-    FRAMEWORK_ASSERT(true_with_side_effect(), "should not fire");
+    CORTEXFLOW_ASSERT(true_with_side_effect(), "should not fire");
     CHECK(s_eval_count == 1);
 }
 
-TEST_CASE("FRAMEWORK_ASSERT evaluates condition exactly once — false") {
+TEST_CASE("CORTEXFLOW_ASSERT evaluates condition exactly once — false") {
     reset_fault_state();
     s_eval_count = 0;
     if (setjmp(s_fault_jump) == 0) {
-        FRAMEWORK_ASSERT(false_with_side_effect(), "expected fault");
+        CORTEXFLOW_ASSERT(false_with_side_effect(), "expected fault");
     }
     CHECK(s_eval_count == 1);
 }
 
-TEST_CASE("FRAMEWORK_ASSERT triggers fault and never returns") {
+TEST_CASE("CORTEXFLOW_ASSERT triggers fault and never returns") {
     reset_fault_state();
     volatile bool reached_past_assert = false;
     if (setjmp(s_fault_jump) == 0) {
-        FRAMEWORK_ASSERT(false, "invariant violated");
+        CORTEXFLOW_ASSERT(false, "invariant violated");
         reached_past_assert = true;
     }
     CHECK(s_fault_called);
@@ -91,7 +91,7 @@ TEST_CASE("fault reports correct source location") {
     int expected_line = 0;
     if (setjmp(s_fault_jump) == 0) {
         expected_line = __LINE__ + 1;
-        FRAMEWORK_ASSERT(false, "location check");
+        CORTEXFLOW_ASSERT(false, "location check");
     }
     CHECK(s_fault_called);
     CHECK(std::strstr(s_fault_file, "test_assert.cpp") != nullptr);
@@ -104,7 +104,7 @@ TEST_CASE("override platform_fault_handler is called instead of default") {
     // If the weak symbol were active, this process would abort.
     reset_fault_state();
     if (setjmp(s_fault_jump) == 0) {
-        FRAMEWORK_ASSERT(false, "override test");
+        CORTEXFLOW_ASSERT(false, "override test");
     }
     CHECK(s_fault_called);
     CHECK(std::strcmp(s_fault_reason, "override test") == 0);

@@ -5,14 +5,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(FRAMEWORK_BUILD_TESTS "Build tests" OFF)
+option(CORTEXFLOW_BUILD_TESTS "Build tests" OFF)
 
-set(FRAMEWORK_TRACE_LEVEL "DISPATCH" CACHE STRING
+set(CORTEXFLOW_TRACE_LEVEL "DISPATCH" CACHE STRING
     "Trace level: OFF, ERROR, WARN, INFO, DISPATCH, FULL")
-set_property(CACHE FRAMEWORK_TRACE_LEVEL PROPERTY STRINGS
+set_property(CACHE CORTEXFLOW_TRACE_LEVEL PROPERTY STRINGS
     OFF ERROR WARN INFO DISPATCH FULL)
 
-string(TOUPPER "${FRAMEWORK_TRACE_LEVEL}" _trace_level_upper)
+string(TOUPPER "${CORTEXFLOW_TRACE_LEVEL}" _trace_level_upper)
 if(_trace_level_upper STREQUAL "OFF")
     set(_trace_level_val 0)
 elseif(_trace_level_upper STREQUAL "ERROR")
@@ -26,21 +26,21 @@ elseif(_trace_level_upper STREQUAL "DISPATCH")
 elseif(_trace_level_upper STREQUAL "FULL")
     set(_trace_level_val 5)
 else()
-    message(FATAL_ERROR "Invalid FRAMEWORK_TRACE_LEVEL: ${FRAMEWORK_TRACE_LEVEL}")
+    message(FATAL_ERROR "Invalid CORTEXFLOW_TRACE_LEVEL: ${CORTEXFLOW_TRACE_LEVEL}")
 endif()
 
-add_library(framework STATIC
-    src/framework/fault.cpp
-    src/framework/trace.cpp
-    src/framework/messaging.cpp
+add_library(cortexflow STATIC
+    src/cortexflow/fault.cpp
+    src/cortexflow/trace.cpp
+    src/cortexflow/messaging.cpp
 )
-target_include_directories(framework PUBLIC
+target_include_directories(cortexflow PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_compile_definitions(framework PUBLIC
-    FRAMEWORK_TRACE_LEVEL_VALUE=${_trace_level_val}
+target_compile_definitions(cortexflow PUBLIC
+    CORTEXFLOW_TRACE_LEVEL_VALUE=${_trace_level_val}
 )
-target_compile_options(framework PUBLIC
+target_compile_options(cortexflow PUBLIC
     -fno-rtti
     -fno-exceptions
     -Wall
@@ -48,7 +48,7 @@ target_compile_options(framework PUBLIC
     -Wpedantic
 )
 
-if(FRAMEWORK_BUILD_TESTS)
+if(CORTEXFLOW_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
