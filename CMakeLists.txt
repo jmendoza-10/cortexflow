@@ -7,11 +7,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(FRAMEWORK_BUILD_TESTS "Build tests" OFF)
 
-add_library(framework INTERFACE)
-target_include_directories(framework INTERFACE
+add_library(framework STATIC
+    src/framework/fault.cpp
+)
+target_include_directories(framework PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-target_compile_options(framework INTERFACE
+target_compile_options(framework PUBLIC
     -fno-rtti
     -fno-exceptions
     -Wall

@@ -9,3 +9,10 @@ add_executable(test_type_name
 target_link_libraries(test_type_name PRIVATE framework doctest)
 
 add_test(NAME type_name COMMAND test_type_name)
+
+add_executable(test_assert
+    unit/test_assert.cpp
+)
+target_link_libraries(test_assert PRIVATE framework doctest)
+
+add_test(NAME assert COMMAND test_assert)
