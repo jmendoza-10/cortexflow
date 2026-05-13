@@ -1,7 +1,24 @@
 import { run, claudeCode } from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import { docker, defaultImageName } from "@ai-hero/sandcastle/sandboxes/docker";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+
+// Self-heal: Docker Desktop on this machine periodically "forgets" the
+// sandcastle image without an explicit delete event (probably daemon-VM
+// restart or state-reset). Rebuild on demand so a run is never blocked.
+const imageName = defaultImageName(process.cwd());
+try {
+  execFileSync("docker", ["image", "inspect", imageName, "--format", "{{.Id}}"], { stdio: "ignore" });
+} catch {
+  console.log(`Image '${imageName}' not present locally — rebuilding before run...`);
+  const r = spawnSync("npx", ["sandcastle", "docker", "build-image"], { stdio: "inherit" });
+  if (r.status !== 0) {
+    console.error(`Image rebuild failed (exit ${r.status}). Aborting.`);
+    process.exit(r.status ?? 1);
+  }
+  console.log();
+}
 
 // Pick up the next ready issue from cortexflow's local issue tracker
 // (`.scratch/<feature>/issues/*.md`, see docs/agents/issue-tracker.md),
