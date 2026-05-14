@@ -80,8 +80,10 @@ struct PingResponder : cortexflow::Module<PingResponder> {
 struct PongCatcher : cortexflow::Module<PongCatcher> {
     using Inbox = std::tuple<Pong>;
 
-    int pongs_seen = 0;
-    int last_seq = -1;
+    // Atomic so tests can poll these fields from a non-loop thread while
+    // run() dispatches on a worker thread (test_runtime.cpp:313, :411).
+    std::atomic<int> pongs_seen{0};
+    std::atomic<int> last_seq{-1};
 
     void on(Pong& msg) {
         ++pongs_seen;

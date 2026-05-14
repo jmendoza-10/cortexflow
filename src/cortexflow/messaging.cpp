@@ -9,8 +9,11 @@ namespace cortexflow {
 namespace {
 
 std::mutex& heap_mutex() {
-    static std::mutex m;
-    return m;
+    // Intentionally never destroyed: callers may hold Envelopes in file-scope
+    // statics whose destructors run after this function-local static would
+    // otherwise be torn down, producing a use-after-destroy on shutdown.
+    static std::mutex* m = new std::mutex();
+    return *m;
 }
 
 } // anonymous namespace
