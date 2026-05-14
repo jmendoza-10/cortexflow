@@ -11,7 +11,7 @@ Three composable primitives plus a shared data cache:
 
 ## Status
 
-Pre-implementation. The full design is locked and lives in [`docs/architecture.md`](docs/architecture.md). Architecture decision records will accumulate under [`docs/adr/`](docs/adr/) as the framework is built out.
+Pre-implementation. The full design is locked and lives in [`docs/architecture.md`](docs/architecture.md). Architecture decision records will accumulate under [`docs/adr/`](docs/adr/) as CortexFlow is built out.
 
 ## Targets
 

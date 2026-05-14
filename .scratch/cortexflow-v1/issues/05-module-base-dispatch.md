@@ -14,7 +14,7 @@ The `Module` base interface (`handle(Envelope&)`, `on_start()`, `on_stop()`, `on
 - [ ] `Module` base class declaring the four lifecycle hooks
 - [ ] Per-module dispatch table generated from `using Inbox = std::tuple<…>;`
 - [ ] Dispatch routes each declared inbox message to the matching `on(Msg&)` overload
-- [ ] Out-of-inbox message → `FRAMEWORK_ASSERT` with a reason naming the message and module
+- [ ] Out-of-inbox message → `CORTEXFLOW_ASSERT` with a reason naming the message and module
 - [ ] `reply_to(envelope, msg)` sends `msg` to `envelope.from`; sentinel `from` asserts
 - [ ] Identity is consistent: `type_id<Module>` resolved at send equals the module's own `kTypeId`
 - [ ] Unit tests covering: each declared inbox message reaches the right overload; identity match; reply round-trip

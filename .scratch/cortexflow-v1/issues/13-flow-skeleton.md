@@ -7,9 +7,9 @@ PRD: `docs/prd.md` — Flow subsystem; user stories 29, 30, 35, 39
 
 The core flow execution model. A `StateFn` is a free function with the signature `StateDirective(FlowCtx&, Envelope&)`. `StateDirective` is the directive a state returns — this slice covers `stay()` and `transition_to(next)`. (`transition_to_now` and `done` land in slice 15.) Any state function can be a legal "next" for any other state function — flow shapes are not constrained to a static graph.
 
-A module owns a single `Flow<S>` (one flowchart per module is the v1 hard rule). The module's `handle(Envelope&)` delegates to `flow.step(env)`. On `flow.start()`, the framework dispatches a synthetic init envelope (`from = ModuleId::system()`, no payload) into the initial state so it can register its first subscriptions/timers immediately.
+A module owns a single `Flow<S>` (one flowchart per module is the v1 hard rule). The module's `handle(Envelope&)` delegates to `flow.step(env)`. On `flow.start()`, CortexFlow dispatches a synthetic init envelope (`from = ModuleId::system()`, no payload) into the initial state so it can register its first subscriptions/timers immediately.
 
-State-locals storage is *not* in this slice — see slice 14. For now, state functions carry only the directive return value; the framework allocates a placeholder buffer of fixed size.
+State-locals storage is *not* in this slice — see slice 14. For now, state functions carry only the directive return value; CortexFlow allocates a placeholder buffer of fixed size.
 
 ## Acceptance criteria
 

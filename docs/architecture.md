@@ -29,10 +29,10 @@ These principles override convenience when they conflict with it.
 3. **Type-derived identity.** No central enums for message IDs, cache keys, or module IDs. The C++ type *is* the identity. `type_name<T>()` generates the human-readable name.
 4. **Static composition.** The system's shape — which modules exist, which cache keys exist, who owns what — is expressed as a single type at compile time. Mis-wirings are compile errors at the composition site.
 5. **Portability without runtime polymorphism.** Platform-specific implementations are swapped at build time via typedefs and conditional compilation. No vtables across the platform seam.
-6. **RAII for every framework-managed resource.** Subscriptions, timers, state-locals. Construct = acquire; destruct = release. Lifetime is the design.
+6. **RAII for every CortexFlow-managed resource.** Subscriptions, timers, state-locals. Construct = acquire; destruct = release. Lifetime is the design.
 7. **No exceptions in the core. No RTTI.** Both incompatible with our target toolchains.
 8. **Determinism on demand.** Production runs on a real clock; tests run on a `ManualClock`. The loop exposes `run_one()` so tests can step the system one dispatch at a time. No sleeps in tests.
-9. **Flooding is failure.** No rate-limiting machinery; if a queue or pool overflows, the system is broken. The framework asserts and stops; recovery is the system designer's choice via the fault handler.
+9. **Flooding is failure.** No rate-limiting machinery; if a queue or pool overflows, the system is broken. CortexFlow asserts and stops; recovery is the system designer's choice via the fault handler.
 
 ---
 
@@ -212,7 +212,7 @@ public:
 };
 ```
 
-The framework generates a `type_id → handler` table at module construction. Dispatch cost is one indirect call after one hash lookup. No RTTI, no `dynamic_cast`, no `any_cast`.
+CortexFlow generates a `type_id → handler` table at module construction. Dispatch cost is one indirect call after one hash lookup. No RTTI, no `dynamic_cast`, no `any_cast`.
 
 ### 6.5 Memory: pluggable allocator
 
@@ -303,7 +303,7 @@ struct ChargingActiveLocals {
 
 ### 7.6 Notification payload
 
-When a key changes, the framework posts `KeyChanged<K> { old_value, new_value }` to each subscriber. The subscriber's `handle(KeyChanged<K>&)` does what it wants — typically forwards to its flowchart's `step()`.
+When a key changes, CortexFlow posts `KeyChanged<K> { old_value, new_value }` to each subscriber. The subscriber's `handle(KeyChanged<K>&)` does what it wants — typically forwards to its flowchart's `step()`.
 
 Custom subscription→message mapping is out of scope for v1.
 
@@ -345,7 +345,7 @@ StateDirective charging_active(Flow& flow, Envelope& env) {
 
 ### 8.4 State-local data and RAII
 
-Each state declares a locals struct. The framework owns a fixed-size aligned buffer per flow, sized at compile time to the maximum of all the flow's locals types. On transition:
+Each state declares a locals struct. CortexFlow owns a fixed-size aligned buffer per flow, sized at compile time to the maximum of all the flow's locals types. On transition:
 
 1. Call the current locals' destructor.
 2. Placement-new the next locals into the same buffer.
@@ -538,7 +538,7 @@ CI builds run with `FULL` enabled so all trace points are validated regardless o
 | **System invariant violation** | Framework   | Post to non-existent module; allocator overflow on bare metal; subscription pool full; double-init; double-write to one-writer key (if/when AA2 enforcement is enabled); cache access before runtime start. |
 | **Application fault**          | Module      | Bad CAN frame parse; sensor disagreement; missing config; external API timeout.       |
 
-Application faults are not the framework's concern. Modules write to their cache keys, return `done()` from a flow, escalate via a message — same machinery they use for normal logic.
+Application faults are not CortexFlow's concern. Modules write to their cache keys, return `done()` from a flow, escalate via a message — same machinery they use for normal logic.
 
 ### 13.2 Single assertion mechanism
 
@@ -561,9 +561,9 @@ Expands to:
 
 Boundary threads call the same primitive. The handler must be interrupt-safe (no allocations, no module interaction).
 
-### 13.3 No recoverable framework errors in v1
+### 13.3 No recoverable CortexFlow errors in v1
 
-Every framework-level error is a system invariant violation, which by definition cannot be recovered from. Send/post/subscribe/set APIs do not return error codes. They succeed or assert.
+Every CortexFlow-level error is a system invariant violation, which by definition cannot be recovered from. Send/post/subscribe/set APIs do not return error codes. They succeed or assert.
 
 ---
 
@@ -575,7 +575,7 @@ Every framework-level error is a system invariant violation, which by definition
 - **`-DCORTEXFLOW_TRACE_LEVEL=OFF|ERROR|WARN|INFO|DISPATCH|FULL`** sets compile-time trace level.
 - **`-DCORTEXFLOW_BUILD_TESTS=ON|OFF`** opts into test build (off by default for cross-compiles).
 
-Each platform backend is its own static library; the user's app links the framework lib + the selected backend.
+Each platform backend is its own static library; the user's app links CortexFlow lib + the selected backend.
 
 ---
 
@@ -721,4 +721,4 @@ ADRs are short (one page each): context, decision, consequences, alternatives co
 - **Cache key** — a C++ type with a `value_type` alias, registered in the composition.
 - **Subscription** — a RAII handle representing "this subscriber wants `KeyChanged<K>` for as long as I exist."
 - **RTC** — run-to-completion. Each handler runs to completion or to a flowchart yield before any other handler runs.
-- **HAL** — hardware/OS abstraction layer; in this framework, the typedef-swapped platform backends.
+- **HAL** — hardware/OS abstraction layer; in CortexFlow, the typedef-swapped platform backends.

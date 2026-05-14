@@ -1,4 +1,4 @@
-# Platform backend typedef-swap formalization + POSIX backend + `FRAMEWORK_TARGET` selection
+# Platform backend typedef-swap formalization + POSIX backend + `CORTEXFLOW_TARGET` selection
 
 Status: ready-for-agent
 PRD: `docs/prd.md` — Platform portability; user stories 44, 45, 48
@@ -12,7 +12,7 @@ This slice ships:
 1. A `platform/<target>/` directory layout per the PRD's repo structure.
 2. The host backend, gathered explicitly behind `platform/host/` (it has been implicit until now).
 3. A new POSIX backend (`platform/posix/`) that uses POSIX primitives where they differ from raw host: file-descriptor based wake for the queue CV, `clock_gettime(CLOCK_MONOTONIC)` for `SteadyClock`, etc.
-4. `FRAMEWORK_TARGET={host,posix}` CMake option that swaps the active backend.
+4. `CORTEXFLOW_TARGET={host,posix}` CMake option that swaps the active backend.
 5. `cmake/targets/host.cmake` and `cmake/targets/posix.cmake`.
 6. Documentation in the repo explaining how a contributor adds a new platform — write a new backend tree and a target file; no core changes.
 
@@ -22,7 +22,7 @@ FreeRTOS and bare-metal backends are deferred to slices 18 and 19.
 
 - [ ] `platform/host/` and `platform/posix/` directories with their backend implementations
 - [ ] Each backend provides the named facility types: `Allocator`, `TimerBackend`, `TraceSink`
-- [ ] `FRAMEWORK_TARGET={host,posix}` CMake option implemented; default = `host`
+- [ ] `CORTEXFLOW_TARGET={host,posix}` CMake option implemented; default = `host`
 - [ ] All existing tests pass under both `host` and `posix` targets in CI
 - [ ] One module's source has zero `#ifdef`s referring to target type — verified by grep in CI
 - [ ] Contributor doc in the repo explaining the typedef-swap mechanism and how to add a new backend

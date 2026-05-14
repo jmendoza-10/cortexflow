@@ -9,7 +9,7 @@ A minimal composed system at `examples/minimal_app/` that serves two purposes si
 
 Shape: two modules, one cache key, one flow with two states, one timer. Concretely (suggested, refine in implementation): a "Producer" module that owns a cache key (a counter), and a "Consumer" module that subscribes to it and runs a flow — `Idle` waits for a `KeyChanged`, transitions to `Processing` which arms a timer that fires a `Done` message back to `Producer`.
 
-CI builds the example from day one against `FRAMEWORK_TARGET=host` and `posix`. Integration tests drive scenarios via `run_one()` + `ManualClock` against this exact composition.
+CI builds the example from day one against `CORTEXFLOW_TARGET=host` and `posix`. Integration tests drive scenarios via `run_one()` + `ManualClock` against this exact composition.
 
 ## Acceptance criteria
 

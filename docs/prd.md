@@ -19,8 +19,8 @@ A C++17 (C++20-where-available) framework providing three composable primitives 
 
 1. **Runtime** owns the event loop, the single FIFO message queue, the data cache, the timer service, and every module instance. It exposes a blocking `run()` for production and a `run_one()` for tests.
 2. **Modules** are typed handler classes. One instance per type. Compile-time addressing (`send<TargetModule>(args...)`). Modules expose a small message surface; their internal complexity is hidden behind a single `handle(Envelope&)` entry point.
-3. **Flowcharts** are re-entrant state machines owned by a module. State functions return a `StateDirective` indicating stay, transition, immediate transition (reusing the current envelope), or done. Per-state local data has framework-managed RAII lifetime, so subscriptions and timers held as state-locals are released automatically on transition.
-4. **Smart data cache** is a typed key-value store with dynamic RAII subscriptions. When a key changes (per `operator==`), the framework posts `KeyChanged<K>` to all subscribers, who route it into their flow.
+3. **Flowcharts** are re-entrant state machines owned by a module. State functions return a `StateDirective` indicating stay, transition, immediate transition (reusing the current envelope), or done. Per-state local data has CortexFlow-managed RAII lifetime, so subscriptions and timers held as state-locals are released automatically on transition.
+4. **Smart data cache** is a typed key-value store with dynamic RAII subscriptions. When a key changes (per `operator==`), CortexFlow posts `KeyChanged<K>` to all subscribers, who route it into their flow.
 
 Composition is a single type-level declaration listing modules, cache keys, ownership, and pool sizes — so mis-wirings are compile errors at the composition site. Platform-specific implementations (allocator, timer backend, trace sink) are swapped at build time via typedefs. Tests drive the system tick-by-tick with a `ManualClock`; no sleeps, no real I/O.
 
@@ -38,12 +38,12 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 ### Messaging
 
 7. As an embedded engineer, I want to send a typed message to another module by its type, so that I never have to maintain a central registry of message IDs.
-8. As an embedded engineer, I want the framework to reject at compile time a send to a module that does not handle the given message type, so that wiring bugs surface immediately.
+8. As an embedded engineer, I want CortexFlow to reject at compile time a send to a module that does not handle the given message type, so that wiring bugs surface immediately.
 9. As an embedded engineer, I want every envelope to carry a `from` sender ID, so that any module can choose to reply.
 10. As an embedded engineer, I want a `reply_to(envelope, ...)` helper, so that I don't manually re-address the response.
 11. As an embedded engineer, I want messages to be moved (not copied) through the queue, so that move-only payloads (`unique_ptr` to OS-supplied buffers, for example) are supported.
 12. As an embedded engineer, I want the queue to be a single FIFO with no priority lanes, so that ordering is deterministic.
-13. As an embedded engineer, I want the framework to abort if the message allocator overflows on bare-metal, so that I learn about under-provisioning instead of fighting silent failures.
+13. As an embedded engineer, I want CortexFlow to abort if the message allocator overflows on bare-metal, so that I learn about under-provisioning instead of fighting silent failures.
 
 ### Identity and tracing
 
@@ -52,7 +52,7 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 16. As an embedded engineer, I want CI to verify that `type_name<T>()` produces the same canonical form on every supported toolchain, so that compiler upgrades don't silently shift identity.
 17. As an embedded engineer, I want a six-level trace hierarchy from `OFF` to `FULL`, so that I can dial verbosity per build (debug verbose, release minimal).
 18. As an embedded engineer, I want the trace level to be selected at compile time so that higher-level trace points compile to nothing in release builds.
-19. As an embedded engineer, I want a pluggable trace sink with sensible defaults per target, so that bare-metal builds can route traces to UART/SWO/RTT without modifying the framework.
+19. As an embedded engineer, I want a pluggable trace sink with sensible defaults per target, so that bare-metal builds can route traces to UART/SWO/RTT without modifying CortexFlow.
 
 ### Cache
 
@@ -73,8 +73,8 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 31. As an embedded engineer, I want `transition_to_now` to reuse the current envelope when invoking the next state, so that chained logic doesn't require a fresh trigger.
 32. As an embedded engineer, I want each state to declare a typed state-locals struct, so that all data tied to that state has scoped lifetime.
 33. As an embedded engineer, I want state-locals to be destructed on transition and the new state's locals constructed in place, so that RAII members (subscriptions, timers) follow state lifetime.
-34. As an embedded engineer, I want the framework to allocate the state-locals buffer at compile time, sized to the largest state's locals across the flow, so that there's no runtime allocation per transition.
-35. As an embedded engineer, I want the framework to dispatch a synthetic init envelope into the initial state once on `flow.start()`, so that initial subscriptions/timers can be set up immediately.
+34. As an embedded engineer, I want CortexFlow to allocate the state-locals buffer at compile time, sized to the largest state's locals across the flow, so that there's no runtime allocation per transition.
+35. As an embedded engineer, I want CortexFlow to dispatch a synthetic init envelope into the initial state once on `flow.start()`, so that initial subscriptions/timers can be set up immediately.
 36. As an embedded engineer, I want `done()` to destruct locals and synchronously call `on_flow_done()` on the owning module, so that I can react to completion before any other dispatch.
 37. As an embedded engineer, I want my module to call `flow.terminate()` from outside a `step()`, so that I can force-end a flow when a higher-level condition demands it.
 38. As an embedded engineer, I want `flow.restart()` to begin a fresh run from the initial state, so that flows are reusable across episodes.
@@ -93,13 +93,13 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 45. As an embedded engineer, I want platform-specific backends (allocator, timer service, trace sink) to be typedef-swapped, so that the composition references a single `platform::Backend` name that resolves to the right implementation.
 46. As an embedded engineer, I want boundary modules to be conventional modules that own internal threads for foreign work, so that the boundary between in-loop and foreign code is named clearly.
 47. As an embedded engineer, I want `runtime.post(envelope)` to be thread-safe so that boundary threads enqueue work without bespoke synchronization.
-48. As a contributor, I want to port the framework to a new platform by writing new backends and a CMake target file, so that adding a target doesn't require core changes.
+48. As a contributor, I want to port CortexFlow to a new platform by writing new backends and a CMake target file, so that adding a target doesn't require core changes.
 
 ### Errors and faults
 
-49. As an embedded engineer, I want a single `CORTEXFLOW_ASSERT(cond, reason)` primitive used by both the framework and my modules, so that assertions surface through one channel.
+49. As an embedded engineer, I want a single `CORTEXFLOW_ASSERT(cond, reason)` primitive used by both CortexFlow and my modules, so that assertions surface through one channel.
 50. As an embedded engineer, I want fault handling to dispatch through a weak-linked platform handler, so that bare-metal builds can override behavior (typically: disable interrupts, log, reset).
-51. As an embedded engineer, I want every framework-level error to be a system invariant violation that aborts cleanly, so that I never need to thread error codes through send/post/subscribe APIs.
+51. As an embedded engineer, I want every CortexFlow-level error to be a system invariant violation that aborts cleanly, so that I never need to thread error codes through send/post/subscribe APIs.
 
 ### Testing
 
@@ -111,7 +111,7 @@ Composition is a single type-level declaration listing modules, cache keys, owne
 
 ### Documentation
 
-57. As a contributor, I want each major design decision recorded as a short ADR, so that future contributors can understand why the framework is shaped the way it is without re-litigating.
+57. As a contributor, I want each major design decision recorded as a short ADR, so that future contributors can understand why CortexFlow is shaped the way it is without re-litigating.
 58. As an onboarding engineer, I want a minimal example app in the repo, so that I have a working reference for composition, modules, and a flowchart out of the box.
 
 ## Implementation Decisions
@@ -130,7 +130,7 @@ The v1 implementation is organized around the following subsystems. Each is fold
 - **Time** — `Clock` interface, `SteadyClock`, `ManualClock`, `TimerService` runtime-level facility, `Timer` value type for state-locals.
 - **Identity** — `type_name<T>()` constexpr utility parsing compiler-specific function-signature macros; produces fully-qualified canonical names used as message/key/module identity and trace strings; constexpr-hashed to `type_id_t`.
 - **Trace** — six-level hierarchy (`OFF` / `ERROR` / `WARN` / `INFO` / `DISPATCH` / `FULL`); compile-time selection via `if constexpr`; pluggable sink with per-target defaults; weak-linked override on bare-metal.
-- **Fault** — `FRAMEWORK_ASSERT(cond, reason)` macro → `[[noreturn]] fault(...)` → platform-pluggable handler.
+- **Fault** — `CORTEXFLOW_ASSERT(cond, reason)` macro → `[[noreturn]] fault(...)` → platform-pluggable handler.
 - **Platform backends** — selected at build time via typedef-swap. Each target ships allocator, timer backend, trace sink. Boundary modules (CAN, socket, etc.) are also typedef-swapped per target.
 
 ### Concurrency model
@@ -188,7 +188,7 @@ Every message inherits from a CRTP base that attaches `static constexpr std::str
 
 ### Allocation strategy
 
-Pluggable allocator behind `make_message<T>(args...)` and `MessagePtr<T>`. Defaults per target: host = heap; bare-metal = per-type compile-time slab pool; FreeRTOS = configurable. Pool overflow on bare-metal is a `FRAMEWORK_ASSERT` (system failure). The allocator interface includes locking primitives for thread-safe use from foreign threads.
+Pluggable allocator behind `make_message<T>(args...)` and `MessagePtr<T>`. Defaults per target: host = heap; bare-metal = per-type compile-time slab pool; FreeRTOS = configurable. Pool overflow on bare-metal is a `CORTEXFLOW_ASSERT` (system failure). The allocator interface includes locking primitives for thread-safe use from foreign threads.
 
 ### Reply semantics
 
@@ -268,7 +268,7 @@ This is a greenfield framework, so there is no in-repo prior art to mirror. Test
 - **Backwards-compat shims for evolving message schemas.** v1 assumes the build is the unit of versioning.
 - **Dynamic module instantiation.** All modules are statically composed.
 - **Cross-process message routing.** The runtime is in-process by definition.
-- **Rate-limiting on the queue or pools.** Floods are explicit system failures, not framework-handled.
+- **Rate-limiting on the queue or pools.** Floods are explicit system failures, not CortexFlow-handled.
 
 ## Further Notes
 
@@ -291,7 +291,7 @@ Two CMake flags drive build configuration: `CORTEXFLOW_TARGET={host,posix,freert
 ### Polish areas worth front-loading
 
 - **Static_assert messages.** The composition site is where every user starts. Static_assert failure messages must be clearly worded ("`X` declared as writer of `Y` but `X` is not in `ModuleList`"). Cryptic template errors here are a major friction point.
-- **type_name<T>() canonical-form fixture.** Set up the CI stability check before the framework relies on `type_name` for identity in production code.
+- **type_name<T>() canonical-form fixture.** Set up the CI stability check before CortexFlow relies on `type_name` for identity in production code.
 - **Trace label conventions.** Once trace output exists, decide a one-line format and stick with it (timestamp, level, kind, from, to, type name, key fields). Reusable across sinks.
 
 ### Tracker filing
