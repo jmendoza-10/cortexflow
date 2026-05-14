@@ -43,6 +43,44 @@ private:
 
 namespace detail {
 
+// ----------------------------------------------------------------------------
+// Composition-validator traits used by Module::send static_asserts. The
+// traits also back the Runtime-level duplicate-module check (declared in
+// runtime.hpp). Kept in module.hpp so that Module<Derived, ModuleListT> can
+// reach them without including runtime.hpp.
+// ----------------------------------------------------------------------------
+
+template <typename Tuple, typename T>
+struct tuple_contains : std::false_type {};
+
+template <typename T, typename... Ts>
+struct tuple_contains<std::tuple<Ts...>, T>
+    : std::disjunction<std::is_same<T, Ts>...> {};
+
+template <typename Tuple, typename T>
+inline constexpr bool tuple_contains_v = tuple_contains<Tuple, T>::value;
+
+template <typename, typename = void>
+struct has_inbox : std::false_type {};
+
+template <typename T>
+struct has_inbox<T, std::void_t<typename T::Inbox>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool has_inbox_v = has_inbox<T>::value;
+
+// Pattern-match on any variadic template (e.g. ModuleList<Modules...>) so the
+// trait does not need to include the runtime header.
+template <typename List, typename T>
+struct list_contains : std::false_type {};
+
+template <template <typename...> class List, typename T, typename... Ts>
+struct list_contains<List<Ts...>, T>
+    : std::disjunction<std::is_same<T, Ts>...> {};
+
+template <typename List, typename T>
+inline constexpr bool list_contains_v = list_contains<List, T>::value;
+
 struct DispatchEntry {
     type_id_t msg_type_id;
     void (*handler)(ModuleBase*, Envelope&);
@@ -71,7 +109,14 @@ struct DispatchTable<Derived, std::tuple<>> {
 
 } // namespace detail
 
-template <typename Derived>
+// Module<Derived, ModuleListT>
+//
+// `ModuleListT` is optional. When supplied, `send<Target>(msg)` adds a
+// compile-time check that `Target` is declared in the same `ModuleList`. The
+// check is opt-in so existing modules using `Module<Derived>` are unaffected;
+// modules that want call-site protection forward-declare their list and pass
+// it as the second template argument.
+template <typename Derived, typename ModuleListT = void>
 class Module : public ModuleBase, public Identified<Derived> {
 public:
     void handle(Envelope& env) override {
@@ -108,6 +153,18 @@ protected:
 
     template <typename Target, typename Msg>
     void send(Msg&& msg) {
+        static_assert(detail::has_inbox_v<Target>,
+            "cortexflow::Module::send: Target is not a cortexflow module "
+            "(no Inbox typedef declared)");
+        static_assert(
+            detail::tuple_contains_v<typename Target::Inbox, std::decay_t<Msg>>,
+            "cortexflow::Module::send: Target does not declare a handler "
+            "for the message type (Msg is not listed in Target::Inbox)");
+        if constexpr (!std::is_void_v<ModuleListT>) {
+            static_assert(detail::list_contains_v<ModuleListT, Target>,
+                "cortexflow::Module::send: Target is not declared in "
+                "ModuleList (send target is not a registered module)");
+        }
         auto ptr = make_message<std::decay_t<Msg>>(std::forward<Msg>(msg));
         Envelope env(Identified<Derived>::kTypeId, type_id<Target>(),
                      std::move(ptr));

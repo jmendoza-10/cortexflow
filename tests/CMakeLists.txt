@@ -57,19 +57,37 @@ target_link_libraries(test_runtime PRIVATE cortexflow doctest)
 
 add_test(NAME runtime COMMAND test_runtime)
 
-# Compile-fail tests: each file must be rejected by the compiler.
-add_test(NAME copy_envelope_fails
-    COMMAND sh -c "\
-! ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions \
-    -I${CMAKE_SOURCE_DIR}/include \
-    -c ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_envelope.cpp \
-    -o /dev/null 2>&1"
+# Compile-fail tests: each file must be rejected by the compiler. The
+# composition-validator tests additionally verify that the diagnostic contains
+# the static_assert message — that wording is the front-door error users see,
+# so changes to it should be deliberate.
+
+expect_compile_fail(
+    NAME copy_envelope_fails
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_envelope.cpp
+    MATCHES "deleted"
 )
 
-add_test(NAME copy_message_ptr_fails
-    COMMAND sh -c "\
-! ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions \
-    -I${CMAKE_SOURCE_DIR}/include \
-    -c ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_message_ptr.cpp \
-    -o /dev/null 2>&1"
+expect_compile_fail(
+    NAME copy_message_ptr_fails
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/copy_message_ptr.cpp
+    MATCHES "deleted"
+)
+
+expect_compile_fail(
+    NAME duplicate_module_fails
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/duplicate_module.cpp
+    MATCHES "duplicate module type declared in ModuleList"
+)
+
+expect_compile_fail(
+    NAME send_target_not_in_module_list_fails
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/send_target_not_in_module_list.cpp
+    MATCHES "Target is not declared in ModuleList"
+)
+
+expect_compile_fail(
+    NAME send_target_no_handler_fails
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/send_target_no_handler.cpp
+    MATCHES "does not declare a handler for the message type"
 )

@@ -51,6 +51,28 @@ struct DrainBudget {
 
 namespace detail {
 
+// Composition validator: detect a duplicate module type in any variadic
+// template list (matches ModuleList<Modules...>). Used by the Runtime-level
+// `static_assert` below. Per-pair traits used by Module::send live in
+// module.hpp so the send call site does not need to include runtime.hpp.
+template <typename...>
+struct pack_has_duplicates : std::false_type {};
+
+template <typename First, typename... Rest>
+struct pack_has_duplicates<First, Rest...>
+    : std::bool_constant<
+          std::disjunction_v<std::is_same<First, Rest>...> ||
+          pack_has_duplicates<Rest...>::value> {};
+
+template <typename>
+struct list_has_duplicates : std::false_type {};
+
+template <template <typename...> class List, typename... Ts>
+struct list_has_duplicates<List<Ts...>> : pack_has_duplicates<Ts...> {};
+
+template <typename List>
+inline constexpr bool list_has_duplicates_v = list_has_duplicates<List>::value;
+
 // Per-option SFINAE probes — produce { present, value } for each option kind.
 template <typename T, typename = void>
 struct drain_budget_of {
@@ -107,6 +129,14 @@ struct Config {
 
 template <typename ModuleListT, typename CacheKeyListT, typename ConfigT>
 class Runtime {
+    // Composition validator. Fires at the point a user instantiates the
+    // Runtime, which is the front door for mis-wirings. Message wording is
+    // user-facing — the offending type appears in the surrounding template
+    // instantiation note that the compiler prints alongside this assertion.
+    static_assert(!detail::list_has_duplicates_v<ModuleListT>,
+        "cortexflow::Runtime: duplicate module type declared in ModuleList "
+        "(each module type may appear at most once)");
+
 public:
     using modules_tuple = typename ModuleListT::tuple_type;
     static constexpr std::size_t kNumModules =

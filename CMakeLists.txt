@@ -56,5 +56,6 @@ target_compile_options(cortexflow PUBLIC
 
 if(CORTEXFLOW_BUILD_TESTS)
     enable_testing()
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompileFail.cmake)
     add_subdirectory(tests)
 endif()
