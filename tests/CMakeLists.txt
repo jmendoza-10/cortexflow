@@ -43,6 +43,13 @@ target_link_libraries(test_messaging PRIVATE cortexflow doctest)
 
 add_test(NAME messaging COMMAND test_messaging)
 
+add_executable(test_clock
+    unit/test_clock.cpp
+)
+target_link_libraries(test_clock PRIVATE cortexflow doctest)
+
+add_test(NAME clock COMMAND test_clock)
+
 add_executable(test_module
     unit/test_module.cpp
 )

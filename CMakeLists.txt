@@ -39,6 +39,7 @@ add_library(cortexflow STATIC
     src/cortexflow/fault.cpp
     src/cortexflow/trace.cpp
     src/cortexflow/messaging.cpp
+    src/cortexflow/clock.cpp
 )
 target_include_directories(cortexflow PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

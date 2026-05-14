@@ -12,6 +12,7 @@
 
 #include <cortexflow/assert.hpp>
 #include <cortexflow/cache.hpp>
+#include <cortexflow/clock.hpp>
 #include <cortexflow/messaging.hpp>
 #include <cortexflow/module.hpp>
 #include <cortexflow/trace.hpp>
@@ -138,7 +139,8 @@ public:
     static constexpr std::size_t kMaxSubscriptions =
         ConfigT::kMaxSubscriptions;
 
-    Runtime() = default;
+    Runtime() : clock_(&default_steady_clock()) {}
+    explicit Runtime(Clock& clock) : clock_(&clock) {}
     ~Runtime() {
         // If user forgot to shutdown(), modules destruct via tuple destructor
         // (reverse declaration order). No on_stop() runs in that path — the
@@ -296,6 +298,11 @@ public:
         return *cache_;
     }
 
+    // Clock accessor. Valid for the lifetime of the Runtime — the clock is
+    // bound at construction, not at start(), so subsystems wired in
+    // constructor bodies can already read it.
+    Clock& clock() noexcept { return *clock_; }
+
     // Test introspection: current queue depth.
     std::size_t queue_size() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -303,6 +310,11 @@ public:
     }
 
 private:
+    static SteadyClock& default_steady_clock() {
+        static SteadyClock clk;
+        return clk;
+    }
+
     static void post_trampoline(void* ctx, Envelope&& env) {
         static_cast<Runtime*>(ctx)->post(std::move(env));
     }
@@ -348,6 +360,7 @@ private:
 
     std::optional<modules_tuple> modules_;
     std::optional<cache_type> cache_;
+    Clock* clock_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<Envelope> queue_;
