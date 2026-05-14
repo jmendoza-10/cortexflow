@@ -43,6 +43,13 @@ target_link_libraries(test_messaging PRIVATE cortexflow doctest)
 
 add_test(NAME messaging COMMAND test_messaging)
 
+add_executable(test_module
+    unit/test_module.cpp
+)
+target_link_libraries(test_module PRIVATE cortexflow doctest)
+
+add_test(NAME module COMMAND test_module)
+
 # Compile-fail tests: each file must be rejected by the compiler.
 add_test(NAME copy_envelope_fails
     COMMAND sh -c "\
