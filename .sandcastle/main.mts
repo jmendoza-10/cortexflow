@@ -93,11 +93,12 @@ ${issue.content}`;
 
 await run({
   name: issue.slug,
-  agent: claudeCode("claude-opus-4-6"),
+  agent: claudeCode("claude-opus-4-7"),
   sandbox: docker(),
   branchStrategy: { type: "branch", branch },
   prompt,
   maxIterations: 5,
+  idleTimeoutSeconds: 1200,
 });
 
 console.log(`\nRun complete. Review with:`);
