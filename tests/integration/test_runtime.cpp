@@ -336,6 +336,168 @@ TEST_CASE("double start asserts") {
     app.shutdown();
 }
 
+// ---------------------------------------------------------------------------
+// Foreign-thread post: stress + ordering coverage.
+// ---------------------------------------------------------------------------
+
+struct SeqMsg { int seq; };
+
+struct SeqRecorder : cortexflow::Module<SeqRecorder> {
+    using Inbox = std::tuple<SeqMsg>;
+    std::vector<int> seen;
+    void on(SeqMsg& msg) { seen.push_back(msg.seq); }
+};
+
+using SeqApp = cortexflow::Runtime<
+    cortexflow::ModuleList<SeqRecorder>,
+    cortexflow::CacheKeyList<>,
+    cortexflow::Config<cortexflow::DrainBudget<8192>>>;
+
+TEST_CASE(
+    "foreign thread posts N envelopes; main thread drains in FIFO order") {
+    constexpr int kN = 5000;
+    SeqApp app;
+    app.start();
+
+    std::atomic<bool> producer_done{false};
+    std::thread producer([&] {
+        for (int i = 0; i < kN; ++i) {
+            app.post(make_external_envelope<SeqRecorder>(SeqMsg{i}));
+        }
+        producer_done = true;
+    });
+
+    // Drain concurrently with production: simulates the boundary-thread
+    // pattern where the loop runs while a foreign producer streams in.
+    while (!producer_done.load() ||
+           app.get<SeqRecorder>().seen.size() < static_cast<std::size_t>(kN)) {
+        app.run_one();
+    }
+    producer.join();
+
+    auto& seen = app.get<SeqRecorder>().seen;
+    CHECK(seen.size() == static_cast<std::size_t>(kN));
+    bool ordered = seen.size() == static_cast<std::size_t>(kN);
+    if (ordered) {
+        for (int i = 0; i < kN; ++i) {
+            if (seen[i] != i) { ordered = false; break; }
+        }
+    }
+    CHECK(ordered);
+
+    app.shutdown();
+}
+
+TEST_CASE("foreign-thread post wakes the main thread blocked in run()") {
+    PingPongApp app;
+    app.start();
+
+    std::thread runner([&] { app.run(); });
+
+    // Block briefly to ensure the runner has reached cv_.wait. The wake
+    // semantics are what is under test, not the scheduling delay.
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(5ms);
+
+    // Foreign-thread post: this is what should wake the loop.
+    std::thread producer([&] {
+        app.post(make_external_envelope<PingResponder>(Ping{1}));
+    });
+    producer.join();
+
+    // Spin until the post has been dispatched (or time out).
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (app.get<PongCatcher>().pongs_seen == 1) break;
+        std::this_thread::sleep_for(1ms);
+    }
+    CHECK(app.get<PongCatcher>().pongs_seen == 1);
+
+    app.stop();
+    runner.join();
+    app.shutdown();
+}
+
+TEST_CASE("foreign-thread post after stop() is silently dropped") {
+    PingPongApp app;
+    app.start();
+
+    app.stop();  // signal shutdown; run() not started here.
+
+    // Foreign thread tries to post after stop. Must not enqueue and must
+    // not assert. The producer's envelope is destroyed in place.
+    std::atomic<bool> producer_done{false};
+    std::thread producer([&] {
+        for (int i = 0; i < 50; ++i) {
+            app.post(make_external_envelope<PingResponder>(Ping{i}));
+        }
+        producer_done = true;
+    });
+    producer.join();
+    CHECK(producer_done.load());
+    CHECK(app.queue_size() == 0);
+
+    // Recovery: a fresh start() after shutdown() works. (start() asserts on
+    // double-start, so we need shutdown first.)
+    app.shutdown();
+    app.start();
+    app.post(make_external_envelope<PingResponder>(Ping{99}));
+    app.run_one();
+    CHECK(app.get<PingResponder>().pings_seen == 1);
+    CHECK(app.get<PongCatcher>().last_seq == 99);
+    app.shutdown();
+}
+
+TEST_CASE("multiple foreign producers + main drainer preserve total count") {
+    constexpr int kProducers = 4;
+    constexpr int kPerProducer = 1000;
+    constexpr int kTotal = kProducers * kPerProducer;
+
+    SeqApp app;
+    app.start();
+
+    std::atomic<int> producers_done{0};
+    std::vector<std::thread> producers;
+    producers.reserve(kProducers);
+    for (int p = 0; p < kProducers; ++p) {
+        producers.emplace_back([&, p] {
+            for (int i = 0; i < kPerProducer; ++i) {
+                app.post(make_external_envelope<SeqRecorder>(
+                    SeqMsg{p * kPerProducer + i}));
+            }
+            ++producers_done;
+        });
+    }
+
+    while (producers_done.load() < kProducers ||
+           app.get<SeqRecorder>().seen.size() <
+               static_cast<std::size_t>(kTotal)) {
+        app.run_one();
+    }
+    for (auto& t : producers) t.join();
+
+    CHECK(app.get<SeqRecorder>().seen.size() ==
+          static_cast<std::size_t>(kTotal));
+    // Per-producer FIFO: each producer's stream of seq values must appear
+    // in increasing order (interleavings between producers are allowed).
+    bool per_producer_ordered = true;
+    int last_per_producer[kProducers];
+    for (int p = 0; p < kProducers; ++p) {
+        last_per_producer[p] = p * kPerProducer - 1;
+    }
+    for (int seq : app.get<SeqRecorder>().seen) {
+        int producer = seq / kPerProducer;
+        if (seq != last_per_producer[producer] + 1) {
+            per_producer_ordered = false;
+            break;
+        }
+        last_per_producer[producer] = seq;
+    }
+    CHECK(per_producer_ordered);
+
+    app.shutdown();
+}
+
 TEST_CASE("envelope to unknown module asserts during dispatch") {
     PingPongApp app;
     app.start();

@@ -21,6 +21,27 @@ protected:
     ~MessageAllocator() = default;
 };
 
+// RAII lock guard for `MessageAllocator`. Wrap every `allocate`/`deallocate`
+// call in this so non-thread-safe backends (e.g. bare-metal slab pools) stay
+// correct when invoked from foreign threads (boundary modules constructing a
+// message before `runtime.post(...)`). Host/POSIX `HeapAllocator` already
+// serialises internally; the extra lock is uncontended and effectively free.
+class AllocatorLock {
+public:
+    explicit AllocatorLock(MessageAllocator& a) noexcept : alloc_(a) {
+        alloc_.lock();
+    }
+    ~AllocatorLock() { alloc_.unlock(); }
+
+    AllocatorLock(const AllocatorLock&) = delete;
+    AllocatorLock& operator=(const AllocatorLock&) = delete;
+    AllocatorLock(AllocatorLock&&) = delete;
+    AllocatorLock& operator=(AllocatorLock&&) = delete;
+
+private:
+    MessageAllocator& alloc_;
+};
+
 MessageAllocator& default_allocator();
 
 template <typename T>
@@ -62,7 +83,10 @@ private:
     void destroy() {
         if (ptr_) {
             ptr_->~T();
-            allocator_->deallocate(ptr_, sizeof(T), alignof(T));
+            {
+                AllocatorLock guard(*allocator_);
+                allocator_->deallocate(ptr_, sizeof(T), alignof(T));
+            }
             ptr_ = nullptr;
         }
     }
@@ -136,6 +160,7 @@ private:
     template <typename T>
     static void destroy_impl(MessageAllocator* alloc, void* ptr) {
         static_cast<T*>(ptr)->~T();
+        AllocatorLock guard(*alloc);
         alloc->deallocate(ptr, sizeof(T), alignof(T));
     }
 
@@ -147,12 +172,21 @@ private:
     void (*destroy_fn_)(MessageAllocator*, void*);
 };
 
+// Construct a message in the supplied allocator. Holds the allocator lock
+// for the entire allocate + placement-new sequence so the call is safe to
+// invoke from any thread (including foreign boundary-module threads).
 template <typename T, typename... Args>
-MessagePtr<T> make_message(Args&&... args) {
-    auto& alloc = default_allocator();
+MessagePtr<T> make_message_with(MessageAllocator& alloc, Args&&... args) {
+    AllocatorLock guard(alloc);
     void* mem = alloc.allocate(sizeof(T), alignof(T));
     T* ptr = ::new (mem) T(std::forward<Args>(args)...);
     return MessagePtr<T>(ptr, &alloc);
+}
+
+template <typename T, typename... Args>
+MessagePtr<T> make_message(Args&&... args) {
+    return make_message_with<T>(default_allocator(),
+                                std::forward<Args>(args)...);
 }
 
 class HeapAllocator : public MessageAllocator {

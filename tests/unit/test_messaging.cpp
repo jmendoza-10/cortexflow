@@ -3,10 +3,13 @@
 
 #include <cortexflow/messaging.hpp>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 // --- Test message types ---
 
@@ -35,20 +38,33 @@ public:
     int alloc_count = 0;
     int dealloc_count = 0;
     bool locked = false;
+    int max_alloc_with_lock_held = 0;
+    int alloc_with_lock_held = 0;
+    int dealloc_with_lock_held = 0;
+    int lock_count = 0;
+    int unlock_count = 0;
 
     void* allocate(std::size_t size, std::size_t alignment) override {
         ++alloc_count;
+        if (locked) ++alloc_with_lock_held;
         return ::operator new(size, std::align_val_t{alignment}, std::nothrow);
     }
 
     void deallocate(void* ptr, std::size_t /*size*/,
                     std::size_t alignment) override {
         ++dealloc_count;
+        if (locked) ++dealloc_with_lock_held;
         ::operator delete(ptr, std::align_val_t{alignment});
     }
 
-    void lock() override { locked = true; }
-    void unlock() override { locked = false; }
+    void lock() override {
+        locked = true;
+        ++lock_count;
+    }
+    void unlock() override {
+        locked = false;
+        ++unlock_count;
+    }
 };
 
 using cortexflow::Envelope;
@@ -266,4 +282,90 @@ TEST_CASE("HeapAllocator lock/unlock") {
 TEST_CASE("default_allocator returns HeapAllocator instance") {
     auto& alloc = cortexflow::default_allocator();
     CHECK(&alloc == &HeapAllocator::instance());
+}
+
+// ---------------------------------------------------------------------------
+// AllocatorLock RAII
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AllocatorLock acquires on construction and releases on destruction") {
+    TrackingAllocator alloc;
+    {
+        cortexflow::AllocatorLock guard(alloc);
+        CHECK(alloc.locked);
+        CHECK(alloc.lock_count == 1);
+        CHECK(alloc.unlock_count == 0);
+    }
+    CHECK_FALSE(alloc.locked);
+    CHECK(alloc.unlock_count == 1);
+}
+
+// ---------------------------------------------------------------------------
+// Foreign-thread allocator path
+// ---------------------------------------------------------------------------
+
+TEST_CASE("make_message_with holds allocator lock during allocate") {
+    TrackingAllocator alloc;
+    auto msg = cortexflow::make_message_with<SimpleMsg>(alloc, SimpleMsg{17});
+
+    CHECK(msg);
+    CHECK(msg->value == 17);
+    CHECK(alloc.alloc_count == 1);
+    CHECK(alloc.alloc_with_lock_held == 1);
+    CHECK(alloc.lock_count == 1);
+    CHECK(alloc.unlock_count == 1);
+    CHECK_FALSE(alloc.locked);
+}
+
+TEST_CASE("MessagePtr destruction holds allocator lock during deallocate") {
+    TrackingAllocator alloc;
+    {
+        auto msg = cortexflow::make_message_with<SimpleMsg>(alloc, SimpleMsg{1});
+        CHECK(alloc.lock_count == 1);
+    }
+    CHECK(alloc.dealloc_count == 1);
+    CHECK(alloc.dealloc_with_lock_held == 1);
+    CHECK(alloc.lock_count == 2);
+    CHECK(alloc.unlock_count == 2);
+}
+
+TEST_CASE("Envelope destruction holds allocator lock during deallocate") {
+    TrackingAllocator alloc;
+    {
+        auto msg = cortexflow::make_message_with<SimpleMsg>(alloc, SimpleMsg{2});
+        Envelope env(kNoSender, type_id<SimpleMsg>(), std::move(msg));
+        CHECK(alloc.lock_count == 1);
+    }
+    CHECK(alloc.dealloc_count == 1);
+    CHECK(alloc.dealloc_with_lock_held == 1);
+    CHECK(alloc.lock_count == 2);
+}
+
+TEST_CASE(
+    "make_message_with from a foreign thread holds the allocator lock") {
+    TrackingAllocator alloc;
+    std::atomic<bool> observed_locked{false};
+    std::atomic<bool> observed_unlocked{false};
+
+    std::thread foreign([&] {
+        for (int i = 0; i < 64; ++i) {
+            auto msg = cortexflow::make_message_with<SimpleMsg>(
+                alloc, SimpleMsg{i});
+            (void)msg;  // destructor releases through the allocator
+        }
+        // After construction returns, the lock is released.
+        observed_unlocked.store(!alloc.locked);
+        observed_locked.store(alloc.lock_count > 0);
+    });
+    foreign.join();
+
+    CHECK(observed_locked.load());
+    CHECK(observed_unlocked.load());
+    CHECK(alloc.alloc_count == 64);
+    CHECK(alloc.dealloc_count == 64);
+    // Every allocate AND deallocate happened with the lock held.
+    CHECK(alloc.alloc_with_lock_held == 64);
+    CHECK(alloc.dealloc_with_lock_held == 64);
+    CHECK(alloc.lock_count == 128);
+    CHECK(alloc.unlock_count == 128);
 }

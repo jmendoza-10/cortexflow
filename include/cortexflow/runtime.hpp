@@ -223,10 +223,28 @@ public:
     }
 
     // Thread-safe enqueue. Callable from any thread (including foreign
-    // threads), and from inside a handler running on the loop thread.
+    // boundary-module threads) and from inside a handler running on the loop
+    // thread. Synchronisation: the queue mutex serialises producers; a
+    // foreign-thread post wakes a `run()` blocked in the CV via notify_one.
+    //
+    // Wake-on-stop: posts arriving after `stop()` has been observed are
+    // silently dropped. Boundary-module threads commonly race with `stop()`
+    // (the producer hasn't yet noticed its join request); turning that race
+    // into an assertion would make orderly teardown brittle. The producer's
+    // `Envelope` is destroyed in place, returning its allocation through the
+    // allocator just like a normal drain.
     void post(Envelope&& env) {
+        if (stop_requested_.load(std::memory_order_acquire)) {
+            return;  // dropped — see comment above
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            // Re-check under the lock: stop() takes the same mutex before
+            // setting the flag, so this guarantees no envelope enters the
+            // queue after stop()'s critical section completes.
+            if (stop_requested_.load(std::memory_order_relaxed)) {
+                return;
+            }
             queue_.push_back(std::move(env));
         }
         cv_.notify_one();

@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CORTEXFLOW_BUILD_TESTS "Build tests" OFF)
+option(CORTEXFLOW_ENABLE_TSAN "Build with ThreadSanitizer (host only)" OFF)
+
+if(CORTEXFLOW_ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread -g -O1 -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+endif()
 
 set(CORTEXFLOW_TRACE_LEVEL "DISPATCH" CACHE STRING
     "Trace level: OFF, ERROR, WARN, INFO, DISPATCH, FULL")
