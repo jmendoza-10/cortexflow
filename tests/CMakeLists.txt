@@ -50,6 +50,13 @@ target_link_libraries(test_module PRIVATE cortexflow doctest)
 
 add_test(NAME module COMMAND test_module)
 
+add_executable(test_runtime
+    integration/test_runtime.cpp
+)
+target_link_libraries(test_runtime PRIVATE cortexflow doctest)
+
+add_test(NAME runtime COMMAND test_runtime)
+
 # Compile-fail tests: each file must be rejected by the compiler.
 add_test(NAME copy_envelope_fails
     COMMAND sh -c "\
