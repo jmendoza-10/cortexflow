@@ -107,3 +107,31 @@ TEST_CASE("StateList of states without Locals defaults to the empty struct") {
     CHECK(L::kMaxLocalsSize == sizeof(cortexflow::detail::EmptyLocals));
     CHECK(L::kMaxLocalsAlign == alignof(cortexflow::detail::EmptyLocals));
 }
+
+// ---------------------------------------------------------------------------
+// Slice 15 — transition_to_now / done factory tests
+// ---------------------------------------------------------------------------
+
+TEST_CASE("transition_to_now<Tag>() yields Kind::TransitionNow with that tag's "
+          "info") {
+    StateDirective d = cortexflow::transition_to_now<StateDummyB>();
+    CHECK(d.kind == StateDirective::Kind::TransitionNow);
+    CHECK(d.next == &cortexflow::detail::kStateInfo<StateDummyB>);
+}
+
+TEST_CASE("done() yields Kind::Done with null next") {
+    StateDirective d = cortexflow::done();
+    CHECK(d.kind == StateDirective::Kind::Done);
+    CHECK(d.next == nullptr);
+}
+
+TEST_CASE("the four directive Kinds are pairwise distinct") {
+    // Sanity check that no enumerator collides under the encoding extension.
+    CHECK(StateDirective::Kind::Stay != StateDirective::Kind::Transition);
+    CHECK(StateDirective::Kind::Stay != StateDirective::Kind::TransitionNow);
+    CHECK(StateDirective::Kind::Stay != StateDirective::Kind::Done);
+    CHECK(StateDirective::Kind::Transition !=
+          StateDirective::Kind::TransitionNow);
+    CHECK(StateDirective::Kind::Transition != StateDirective::Kind::Done);
+    CHECK(StateDirective::Kind::TransitionNow != StateDirective::Kind::Done);
+}

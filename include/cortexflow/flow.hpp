@@ -39,13 +39,22 @@ struct StateInfo;
 // StateDirective + factories
 // ---------------------------------------------------------------------------
 //
-// `transition_to_now` and `done` arrive in slice 15; the encoding shown in
-// the PRD (§"State directive encoding") is built out incrementally.
+// Four directives, matching the PRD §"State directive encoding":
+//   - Stay         — keep the current state; locals untouched.
+//   - Transition   — destruct current locals, construct next state's locals,
+//                    then return to the loop (next state runs on the *next*
+//                    dispatched envelope).
+//   - TransitionNow— destruct current locals, construct next state's locals,
+//                    and immediately re-enter the new state with the same
+//                    envelope. No chain-depth limit is enforced.
+//   - Done         — destruct current locals, mark the flow inactive, then
+//                    synchronously call `on_flow_done()` on the owning module
+//                    before any other dispatch resumes.
 struct StateDirective {
-    enum class Kind { Stay, Transition };
+    enum class Kind { Stay, Transition, TransitionNow, Done };
 
     Kind kind;
-    const detail::StateInfo* next;
+    const detail::StateInfo* next;  // valid for Transition / TransitionNow
 };
 
 namespace detail {
@@ -145,6 +154,26 @@ template <typename NextStateTag>
     };
 }
 
+// Re-enter `NextStateTag` immediately with the *same* envelope. The flow
+// loop destructs the outgoing locals and constructs the incoming locals,
+// then invokes the new state's `handle` without returning from `step()`.
+// The next state may use or ignore the envelope. Chain-depth is the flow
+// designer's responsibility — CortexFlow does not enforce a limit.
+template <typename NextStateTag>
+[[nodiscard]] inline StateDirective transition_to_now() noexcept {
+    return StateDirective{
+        StateDirective::Kind::TransitionNow,
+        &detail::kStateInfo<NextStateTag>,
+    };
+}
+
+// End the flow: destruct current locals, mark inactive, and synchronously
+// call `on_flow_done()` on the owning module before any other dispatch
+// resumes. After `done`, the flow is dormant until `restart()`.
+[[nodiscard]] inline StateDirective done() noexcept {
+    return StateDirective{StateDirective::Kind::Done, nullptr};
+}
+
 // ---------------------------------------------------------------------------
 // FlowCtx
 // ---------------------------------------------------------------------------
@@ -195,11 +224,12 @@ public:
     constexpr Flow() noexcept = default;
 
     ~Flow() {
-        // Destruct the live state-locals if start() has run. Slice 15's
-        // `done` will mark the flow inactive and destruct early; until then
-        // the live-on-shutdown case is what releases RAII state-locals like
-        // Subscription and Timer at module teardown.
-        if (started_) {
+        // Destruct the live state-locals if the flow is currently active.
+        // `done` and `terminate` both flip `active_` false and destruct
+        // eagerly; this teardown only fires for the live-on-shutdown case,
+        // which is what releases RAII state-locals (Subscription, Timer)
+        // when a module is destroyed mid-flow.
+        if (active_) {
             current_->destruct_locals(locals_buffer_);
         }
     }
@@ -211,43 +241,118 @@ public:
 
     // Dispatch the synthetic init envelope into the initial state. Called
     // once per flow lifetime, typically from the owning module's `on_start`.
-    // The envelope is invoked synchronously — by the time `start()` returns
-    // the initial state has already had its chance to register subscriptions
-    // and arm timers from its locals' constructors.
-    void start() {
-        CORTEXFLOW_ASSERT(!started_,
+    // The owner reference is captured so `done` can route `on_flow_done`
+    // back to the owning module and `restart` can re-dispatch the init
+    // envelope without the caller re-supplying it. The envelope is invoked
+    // synchronously — by the time `start()` returns, the initial state has
+    // already had its chance to register subscriptions and arm timers from
+    // its locals' constructors.
+    void start(Owner& owner) {
+        CORTEXFLOW_ASSERT(!active_,
             "cortexflow::Flow::start: flow already started");
-        started_ = true;
-        current_->construct_locals(locals_buffer_);
-        ctx_.locals_ptr_ = locals_buffer_;
-        auto ptr = make_message<FlowInit>();
-        Envelope env(kSystemSender, type_id<Owner>(), std::move(ptr));
-        step(env);
+        owner_ = &owner;
+        enter_initial_();
     }
 
     // Invoke the current state function with `env` and apply the returned
     // directive. The owning module's `handle(Envelope&)` delegates here.
+    //
+    // The body is a loop because `transition_to_now` re-enters the new
+    // state with the same envelope synchronously; `Stay`, `Transition`,
+    // and `Done` all exit the loop. `Done` finishes the loop, releases
+    // `in_step_`, then synchronously dispatches `on_flow_done` to the
+    // owner — so a handler that calls `flow.restart()` from within
+    // `on_flow_done` does not trip the "inside step" assert.
     void step(Envelope& env) {
-        CORTEXFLOW_ASSERT(started_,
+        CORTEXFLOW_ASSERT(active_,
             "cortexflow::Flow::step: called before start()");
-        StateDirective dir = current_->handle(ctx_, env);
-        switch (dir.kind) {
-            case StateDirective::Kind::Stay:
+        CORTEXFLOW_ASSERT(!in_step_,
+            "cortexflow::Flow::step: reentrant invocation");
+        in_step_ = true;
+
+        bool done_pending = false;
+        while (true) {
+            StateDirective dir = current_->handle(ctx_, env);
+            if (dir.kind == StateDirective::Kind::Stay) {
                 break;
-            case StateDirective::Kind::Transition:
+            }
+            if (dir.kind == StateDirective::Kind::Transition ||
+                dir.kind == StateDirective::Kind::TransitionNow) {
                 CORTEXFLOW_ASSERT(dir.next != nullptr,
                     "cortexflow::Flow: transition directive carries null next");
                 current_->destruct_locals(locals_buffer_);
                 current_ = dir.next;
                 current_->construct_locals(locals_buffer_);
                 ctx_.locals_ptr_ = locals_buffer_;
-                break;
+                if (dir.kind == StateDirective::Kind::Transition) {
+                    break;
+                }
+                continue;  // TransitionNow: re-invoke with the same envelope
+            }
+            // Kind::Done — destruct, mark inactive, defer the owner callback
+            // until after the in_step_ flag is cleared (so on_flow_done is
+            // free to call restart() / terminate() without asserting).
+            current_->destruct_locals(locals_buffer_);
+            ctx_.locals_ptr_ = nullptr;
+            active_ = false;
+            done_pending = true;
+            break;
         }
+
+        in_step_ = false;
+
+        if (done_pending) {
+            CORTEXFLOW_ASSERT(owner_ != nullptr,
+                "cortexflow::Flow::done: owner reference not bound "
+                "(start() must be called before a state can return done())");
+            owner_->on_flow_done();
+        }
+    }
+
+    // Force-end the flow from *outside* a `step` call (e.g., from a module's
+    // `handle` for a non-flow message, or from `on_flow_done`). Inside a
+    // step, a state must use the `done()` directive instead.
+    //
+    // No-op if the flow is not currently active (already done, terminated,
+    // or never started). This makes terminate idempotent and safe to call
+    // unconditionally from module teardown paths.
+    void terminate() {
+        CORTEXFLOW_ASSERT(!in_step_,
+            "cortexflow::Flow::terminate: cannot be called from inside a "
+            "step (return the done() directive instead)");
+        if (active_) {
+            current_->destruct_locals(locals_buffer_);
+            ctx_.locals_ptr_ = nullptr;
+            active_ = false;
+        }
+    }
+
+    // Begin a fresh run from the initial state with newly constructed
+    // locals. Re-dispatches the synthetic init envelope, just like
+    // `start`. Requires that `start` has already been called once (so
+    // the owner reference is bound).
+    //
+    // Like `terminate`, `restart` is illegal from inside a step — a state
+    // wanting to re-enter the initial state should return
+    // `transition_to<InitialState>()` or `done()` followed by a restart
+    // from `on_flow_done`.
+    void restart() {
+        CORTEXFLOW_ASSERT(!in_step_,
+            "cortexflow::Flow::restart: cannot be called from inside a step");
+        CORTEXFLOW_ASSERT(owner_ != nullptr,
+            "cortexflow::Flow::restart: owner reference not bound "
+            "(call start() at least once before restart())");
+        if (active_) {
+            current_->destruct_locals(locals_buffer_);
+            ctx_.locals_ptr_ = nullptr;
+            active_ = false;
+        }
+        enter_initial_();
     }
 
     // Test introspection: which state will run on the next `step`.
     const detail::StateInfo* current() const noexcept { return current_; }
-    bool started() const noexcept { return started_; }
+    bool started() const noexcept { return active_; }
 
     static constexpr std::size_t kLocalsBufferSize =
         StateListT::kMaxLocalsSize;
@@ -255,12 +360,28 @@ public:
         StateListT::kMaxLocalsAlign;
 
 private:
+    // Shared entry path for `start` and `restart`: reset to the initial
+    // state, construct its locals, and dispatch the synthetic init envelope
+    // synchronously so the initial state can set up subscriptions / timers
+    // before any external send.
+    void enter_initial_() {
+        current_ = initial_;
+        active_ = true;
+        current_->construct_locals(locals_buffer_);
+        ctx_.locals_ptr_ = locals_buffer_;
+        auto ptr = make_message<FlowInit>();
+        Envelope env(kSystemSender, type_id<Owner>(), std::move(ptr));
+        step(env);
+    }
+
     alignas(kLocalsBufferAlign) std::byte locals_buffer_[kLocalsBufferSize]{};
 
     const detail::StateInfo* initial_ = &detail::kStateInfo<InitialStateTag>;
     const detail::StateInfo* current_ = initial_;
+    Owner* owner_ = nullptr;
     FlowCtx ctx_{};
-    bool started_ = false;
+    bool active_ = false;
+    bool in_step_ = false;
 };
 
 } // namespace cortexflow
