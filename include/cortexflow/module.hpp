@@ -106,6 +106,14 @@ protected:
         this->post(std::move(reply));
     }
 
+    template <typename Target, typename Msg>
+    void send(Msg&& msg) {
+        auto ptr = make_message<std::decay_t<Msg>>(std::forward<Msg>(msg));
+        Envelope env(Identified<Derived>::kTypeId, type_id<Target>(),
+                     std::move(ptr));
+        this->post(std::move(env));
+    }
+
 private:
     Envelope* envelope_ = nullptr;
 };
