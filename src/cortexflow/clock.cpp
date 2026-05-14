@@ -2,14 +2,12 @@
 
 #include <cortexflow/assert.hpp>
 
-#include <chrono>
-
 namespace cortexflow {
 
-Clock::duration SteadyClock::now() const noexcept {
-    return std::chrono::duration_cast<Clock::duration>(
-        std::chrono::steady_clock::now().time_since_epoch());
-}
+// `SteadyClock::now()` lives in the platform backend (`platform/<target>/
+// steady_clock.cpp`) — host uses `std::chrono::steady_clock`, POSIX uses
+// `clock_gettime(CLOCK_MONOTONIC)` directly (architecture §9.3). Everything
+// in this file is target-agnostic.
 
 Clock::duration ManualClock::now() const noexcept {
     return now_;

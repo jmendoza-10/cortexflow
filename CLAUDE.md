@@ -13,3 +13,7 @@ Five canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-f
 ### Domain docs
 
 Single-context: `CONTEXT.md` at the repo root, ADRs under `docs/adr/`. See `docs/agents/domain.md`.
+
+### Platform backends
+
+Platform layer uses typedef-swap (no `#ifdef` walls). See `docs/agents/platform-backends.md` for how to add a new target.

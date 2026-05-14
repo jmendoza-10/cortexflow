@@ -92,6 +92,37 @@ target_link_libraries(test_flow PRIVATE cortexflow doctest)
 
 add_test(NAME flow COMMAND test_flow)
 
+# Cross-target equivalence: same composition built for both targets must
+# behave identically. Run this same binary under host and posix CMake
+# configurations (CI matrix) to satisfy the issue-16 acceptance criterion.
+add_executable(test_platform
+    integration/test_platform.cpp
+)
+target_link_libraries(test_platform PRIVATE cortexflow doctest)
+
+add_test(NAME platform COMMAND test_platform)
+
+# No-target-ifdefs guard: PRD US 44 — "the same module code runs on every
+# supported environment without `#ifdef` walls in module code." Grep the
+# public headers, core sources, and the cross-target test for any
+# `#if(def|ndef) CORTEXFLOW_TARGET*` or platform-name compares. Finding one
+# fails CI before it can spread.
+add_test(NAME no_target_ifdefs
+    COMMAND sh -c "\
+needle='CORTEXFLOW_TARGET_(HOST|POSIX|FREERTOS|BARE_METAL)'; \
+hits=$(grep -rEn \"$needle\" \
+    '${CMAKE_SOURCE_DIR}/include/cortexflow' \
+    '${CMAKE_SOURCE_DIR}/src/cortexflow' \
+    '${CMAKE_CURRENT_SOURCE_DIR}/integration/test_platform.cpp' \
+    2>/dev/null || true); \
+if [ -n \"$hits\" ]; then \
+    echo 'FAIL: target #ifdef detected — modules must use typedef-swap, not target macros.' >&2; \
+    echo \"$hits\" >&2; \
+    exit 1; \
+fi; \
+exit 0"
+)
+
 # Compile-fail tests: each file must be rejected by the compiler. The
 # composition-validator tests additionally verify that the diagnostic contains
 # the static_assert message — that wording is the front-door error users see,

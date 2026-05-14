@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         compiler: [gcc, clang]
+        target: [host, posix]
         include:
           - compiler: gcc
             cc: gcc
@@ -25,12 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure
+      - name: Configure (${{ matrix.target }})
         run: >
           cmake -B build
           -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
           -DCORTEXFLOW_BUILD_TESTS=ON
           -DCORTEXFLOW_TRACE_LEVEL=FULL
+          -DCORTEXFLOW_TARGET=${{ matrix.target }}
 
       - name: Build
         run: cmake --build build

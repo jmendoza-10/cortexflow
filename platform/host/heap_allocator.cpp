@@ -1,3 +1,11 @@
+// Host backend: `HeapAllocator` implementation + `default_allocator()`
+// selector. Uses the C++ global `::operator new` / `::operator delete` with
+// alignment, guarded by `std::mutex` (architecture §6.5).
+//
+// The class itself is declared in `<cortexflow/messaging.hpp>` (core); only
+// the impl is target-specific. POSIX provides an identically-named class
+// backed by `posix_memalign` + `pthread_mutex_t` in `platform/posix/`.
+
 #include <cortexflow/messaging.hpp>
 #include <cortexflow/assert.hpp>
 
