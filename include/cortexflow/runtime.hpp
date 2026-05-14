@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <cortexflow/assert.hpp>
+#include <cortexflow/cache.hpp>
 #include <cortexflow/messaging.hpp>
 #include <cortexflow/module.hpp>
 #include <cortexflow/trace.hpp>
@@ -28,16 +29,7 @@ struct ModuleList {
     static constexpr std::size_t size = sizeof...(Modules);
 };
 
-template <typename Key, typename Owner>
-struct Owned {
-    using key_type = Key;
-    using owner_type = Owner;
-};
-
-template <typename... Keys>
-struct CacheKeyList {
-    static constexpr std::size_t size = sizeof...(Keys);
-};
+// `Owned<K, M>` and `CacheKeyList<...>` live in cache.hpp.
 
 template <std::size_t N>
 struct MaxSubscriptions {
@@ -139,9 +131,12 @@ class Runtime {
 
 public:
     using modules_tuple = typename ModuleListT::tuple_type;
+    using cache_type = Cache<CacheKeyListT, ConfigT::kMaxSubscriptions>;
     static constexpr std::size_t kNumModules =
         std::tuple_size_v<modules_tuple>;
     static constexpr std::size_t kDrainBudget = ConfigT::kDrainBudget;
+    static constexpr std::size_t kMaxSubscriptions =
+        ConfigT::kMaxSubscriptions;
 
     Runtime() = default;
     ~Runtime() {
@@ -157,8 +152,13 @@ public:
 
     // Phase 1: construct all modules (declaration order, by tuple semantics).
     // Phase 2: bind post sinks, then on_start() in declaration order.
+    //
+    // The cache is constructed before modules so module `on_start()` handlers
+    // may freely subscribe to keys and seed initial values.
     void start() {
         CORTEXFLOW_ASSERT(!started_, "Runtime::start called twice");
+        cache_.emplace();
+        cache_->bind_post(&post_trampoline, this);
         modules_.emplace();
         bind_each(*modules_,
                   std::make_index_sequence<kNumModules>{});
@@ -248,6 +248,7 @@ public:
         on_stop_reverse(*modules_,
                         std::make_index_sequence<kNumModules>{});
         modules_.reset();
+        cache_.reset();
         started_ = false;
         stop_requested_ = false;
     }
@@ -286,6 +287,13 @@ public:
         CORTEXFLOW_ASSERT(modules_.has_value(),
             "Runtime::get<>() called before start() or after shutdown()");
         return std::get<M>(*modules_);
+    }
+
+    // Cache accessor. Valid only between start() and shutdown().
+    cache_type& cache() {
+        CORTEXFLOW_ASSERT(cache_.has_value(),
+            "Runtime::cache() called before start() or after shutdown()");
+        return *cache_;
     }
 
     // Test introspection: current queue depth.
@@ -339,6 +347,7 @@ private:
     }
 
     std::optional<modules_tuple> modules_;
+    std::optional<cache_type> cache_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<Envelope> queue_;

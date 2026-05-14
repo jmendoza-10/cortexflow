@@ -57,6 +57,13 @@ target_link_libraries(test_runtime PRIVATE cortexflow doctest)
 
 add_test(NAME runtime COMMAND test_runtime)
 
+add_executable(test_cache
+    integration/test_cache.cpp
+)
+target_link_libraries(test_cache PRIVATE cortexflow doctest)
+
+add_test(NAME cache COMMAND test_cache)
+
 # Compile-fail tests: each file must be rejected by the compiler. The
 # composition-validator tests additionally verify that the diagnostic contains
 # the static_assert message — that wording is the front-door error users see,
