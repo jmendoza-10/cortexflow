@@ -15,6 +15,7 @@
 #include <cortexflow/clock.hpp>
 #include <cortexflow/messaging.hpp>
 #include <cortexflow/module.hpp>
+#include <cortexflow/timer.hpp>
 #include <cortexflow/trace.hpp>
 #include <cortexflow/type_name.hpp>
 
@@ -139,8 +140,8 @@ public:
     static constexpr std::size_t kMaxSubscriptions =
         ConfigT::kMaxSubscriptions;
 
-    Runtime() : clock_(&default_steady_clock()) {}
-    explicit Runtime(Clock& clock) : clock_(&clock) {}
+    Runtime() : clock_(&default_steady_clock()), timers_(*clock_) {}
+    explicit Runtime(Clock& clock) : clock_(&clock), timers_(clock) {}
     ~Runtime() {
         // If user forgot to shutdown(), modules destruct via tuple destructor
         // (reverse declaration order). No on_stop() runs in that path — the
@@ -161,6 +162,7 @@ public:
         CORTEXFLOW_ASSERT(!started_, "Runtime::start called twice");
         cache_.emplace();
         cache_->bind_post(&post_trampoline, this);
+        timers_.bind_post(&post_trampoline, this);
         modules_.emplace();
         bind_each(*modules_,
                   std::make_index_sequence<kNumModules>{});
@@ -251,6 +253,7 @@ public:
                         std::make_index_sequence<kNumModules>{});
         modules_.reset();
         cache_.reset();
+        timers_.clear();
         started_ = false;
         stop_requested_ = false;
     }
@@ -302,6 +305,13 @@ public:
     // bound at construction, not at start(), so subsystems wired in
     // constructor bodies can already read it.
     Clock& clock() noexcept { return *clock_; }
+
+    // Timer service accessor. Valid for the lifetime of the Runtime; the
+    // service installs its advance handler on the clock at Runtime
+    // construction so `ManualClock::advance` fires due timers from any
+    // point. Arming before `start()` is allowed but firing requires the
+    // post sink, which is bound during `start()`.
+    TimerService& timers() noexcept { return timers_; }
 
     // Test introspection: current queue depth.
     std::size_t queue_size() const {
@@ -361,6 +371,7 @@ private:
     std::optional<modules_tuple> modules_;
     std::optional<cache_type> cache_;
     Clock* clock_;
+    TimerService timers_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     std::deque<Envelope> queue_;

@@ -50,6 +50,13 @@ target_link_libraries(test_clock PRIVATE cortexflow doctest)
 
 add_test(NAME clock COMMAND test_clock)
 
+add_executable(test_timer
+    unit/test_timer.cpp
+)
+target_link_libraries(test_timer PRIVATE cortexflow doctest)
+
+add_test(NAME timer COMMAND test_timer)
+
 add_executable(test_module
     unit/test_module.cpp
 )
