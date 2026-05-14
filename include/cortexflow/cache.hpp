@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdio>
 #include <optional>
 #include <tuple>
 #include <type_traits>
@@ -8,6 +9,7 @@
 
 #include <cortexflow/assert.hpp>
 #include <cortexflow/messaging.hpp>
+#include <cortexflow/subscription.hpp>
 #include <cortexflow/type_name.hpp>
 
 namespace cortexflow {
@@ -84,9 +86,10 @@ struct slots_tuple_for<CacheKeyList<Entries...>> {
 // post a `KeyChanged<K>` envelope to every subscriber for that key, in
 // registration order, through the normal runtime queue.
 //
-// Subscription registry is intentionally minimal — slice 10 will replace this
-// with a RAII `Subscription` handle backed by a slot pool. The registration
-// API here exists so this slice can be tested end-to-end via the queue.
+// Subscriptions are managed through a fixed-size pool sized to
+// `MaxSubscriptions`. `subscribe<K>(...)` returns a RAII `Subscription` whose
+// destruction releases the slot synchronously. Overflow is a system-level
+// `CORTEXFLOW_ASSERT` naming the pool capacity and the key type.
 template <typename CacheKeyListT, std::size_t MaxSubscriptions>
 class Cache {
 public:
@@ -122,44 +125,103 @@ public:
         fanout<K>(old, *slot.value);
     }
 
-    // Minimal registration. Slice 10 replaces this with a RAII `Subscription`
-    // handle. `subscriber_id` is the `type_id<Subscriber>()` of the receiving
-    // module; the envelope's `to` field is set to this id and dispatch routes
-    // through the normal queue.
     template <typename K, typename Subscriber>
-    void subscribe() {
-        subscribe<K>(type_id<Subscriber>());
+    [[nodiscard]] Subscription subscribe() {
+        return subscribe<K>(type_id<Subscriber>());
     }
 
     template <typename K>
-    void subscribe(type_id_t subscriber_id) {
-        CORTEXFLOW_ASSERT(num_subs_ < kMaxSubscriptions,
-            "Cache subscription pool overflow");
-        subs_[num_subs_].key_type_id = type_id<K>();
-        subs_[num_subs_].subscriber_id = subscriber_id;
-        ++num_subs_;
+    [[nodiscard]] Subscription subscribe(type_id_t subscriber_id) {
+        if (num_active_ >= kMaxSubscriptions) {
+            overflow_fault<K>();
+        }
+        std::size_t slot_idx = find_free_slot();
+        subs_[slot_idx].key_type_id = type_id<K>();
+        subs_[slot_idx].subscriber_id = subscriber_id;
+        subs_[slot_idx].active = true;
+        order_[num_active_++] = slot_idx;
+        return Subscription(&Cache::release_slot_trampoline, this, slot_idx);
     }
 
-    std::size_t subscriber_count() const noexcept { return num_subs_; }
+    std::size_t subscriber_count() const noexcept { return num_active_; }
 
 private:
     template <typename K>
+    [[noreturn]] void overflow_fault() const {
+        // Format the failure reason once into a static buffer so the string
+        // outlives the asserting frame; subscription overflow is a system
+        // failure (architecture §13.1) so a single-slot buffer is safe.
+        static char buf[192];
+        constexpr auto kn = type_name<K>();
+        std::snprintf(buf, sizeof(buf),
+            "Cache subscription pool overflow (capacity=%zu, key=%.*s)",
+            kMaxSubscriptions,
+            static_cast<int>(kn.size()), kn.data());
+        CORTEXFLOW_ASSERT(false, buf);
+        // CORTEXFLOW_ASSERT(false, ...) is [[noreturn]] in practice; the
+        // unreachable below silences any "function must return a value"
+        // diagnostic in pathological build configurations.
+        for (;;) {}
+    }
+
+    std::size_t find_free_slot() const {
+        for (std::size_t i = 0; i < kMaxSubscriptions; ++i) {
+            if (!subs_[i].active) {
+                return i;
+            }
+        }
+        // num_active_ < kMaxSubscriptions implies a free slot exists; reaching
+        // here means the pool's internal accounting is corrupt.
+        CORTEXFLOW_ASSERT(false,
+            "Cache: no free subscription slot despite count < capacity");
+        return 0;
+    }
+
+    static void release_slot_trampoline(void* ctx, std::size_t slot_idx) {
+        static_cast<Cache*>(ctx)->release_slot(slot_idx);
+    }
+
+    void release_slot(std::size_t slot_idx) noexcept {
+        CORTEXFLOW_ASSERT(slot_idx < kMaxSubscriptions,
+            "Cache::release_slot: slot index out of range");
+        CORTEXFLOW_ASSERT(subs_[slot_idx].active,
+            "Cache::release_slot: slot already inactive");
+        subs_[slot_idx].active = false;
+        std::size_t pos = num_active_;
+        for (std::size_t i = 0; i < num_active_; ++i) {
+            if (order_[i] == slot_idx) {
+                pos = i;
+                break;
+            }
+        }
+        CORTEXFLOW_ASSERT(pos < num_active_,
+            "Cache::release_slot: slot not present in order list");
+        for (std::size_t i = pos + 1; i < num_active_; ++i) {
+            order_[i - 1] = order_[i];
+        }
+        --num_active_;
+    }
+
+    template <typename K>
     void fanout(const std::optional<typename K::value_type>& old_value,
                 const typename K::value_type& new_value) {
-        // Snapshot subscriber count: any subscription added during this call
-        // (which cannot happen via user code, since fanout only enqueues
-        // envelopes and does not dispatch handlers) does not see this write.
-        const std::size_t snapshot = num_subs_;
+        // Snapshot the active subscriber count at the start of the fanout so
+        // any subscription created during the writer's handler (after `set`
+        // returns but before the dispatcher hands out queued envelopes) does
+        // not observe this write — architecture §7.5, "subscribe-during-write".
+        const std::size_t snapshot = num_active_;
         const type_id_t k_id = type_id<K>();
         for (std::size_t i = 0; i < snapshot; ++i) {
-            if (subs_[i].key_type_id != k_id) {
+            const std::size_t slot_idx = order_[i];
+            if (subs_[slot_idx].key_type_id != k_id) {
                 continue;
             }
             CORTEXFLOW_ASSERT(post_fn_ != nullptr,
                 "Cache::set: post sink not bound");
             auto ptr = make_message<KeyChanged<K>>(
                 KeyChanged<K>{old_value, new_value});
-            Envelope env(kNoSender, subs_[i].subscriber_id, std::move(ptr));
+            Envelope env(kNoSender, subs_[slot_idx].subscriber_id,
+                         std::move(ptr));
             post_fn_(post_ctx_, std::move(env));
         }
     }
@@ -167,11 +229,16 @@ private:
     struct Subscriber {
         type_id_t key_type_id = 0;
         type_id_t subscriber_id = 0;
+        bool active = false;
     };
 
+    static constexpr std::size_t kPoolCapacity =
+        MaxSubscriptions ? MaxSubscriptions : 1;
+
     slots_tuple_t slots_{};
-    Subscriber subs_[MaxSubscriptions ? MaxSubscriptions : 1]{};
-    std::size_t num_subs_ = 0;
+    Subscriber subs_[kPoolCapacity]{};
+    std::size_t order_[kPoolCapacity]{};
+    std::size_t num_active_ = 0;
     PostFn post_fn_ = nullptr;
     void* post_ctx_ = nullptr;
 };
