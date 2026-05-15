@@ -53,31 +53,12 @@ extern "C" void platform_trace_sink(
 static std::vector<std::string> s_events;
 
 // ---------------------------------------------------------------------------
-// Test messages
-// ---------------------------------------------------------------------------
-
-struct Ping { int seq; };
-struct Pong { int seq; };
-struct Tick {};
-
-// ---------------------------------------------------------------------------
 // Two-module ping/pong system
 // ---------------------------------------------------------------------------
 
-struct PongCatcher;
-
-struct PingResponder : cortexflow::Module<PingResponder> {
-    using Inbox = std::tuple<Ping>;
-
-    int pings_seen = 0;
-
-    void on(Ping& msg) {
-        ++pings_seen;
-        send<PongCatcher>(Pong{msg.seq});
-    }
-};
-
 struct PongCatcher : cortexflow::Module<PongCatcher> {
+    struct Pong { int seq; };
+
     using Inbox = std::tuple<Pong>;
 
     // Atomic so tests can poll these fields from a non-loop thread while
@@ -88,6 +69,19 @@ struct PongCatcher : cortexflow::Module<PongCatcher> {
     void on(Pong& msg) {
         ++pongs_seen;
         last_seq = msg.seq;
+    }
+};
+
+struct PingResponder : cortexflow::Module<PingResponder> {
+    struct Ping { int seq; };
+
+    using Inbox = std::tuple<Ping>;
+
+    int pings_seen = 0;
+
+    void on(Ping& msg) {
+        ++pings_seen;
+        send<PongCatcher>(PongCatcher::Pong{msg.seq});
     }
 };
 
@@ -128,6 +122,8 @@ using OrderApp = cortexflow::Runtime<
 // ---------------------------------------------------------------------------
 
 struct Counter : cortexflow::Module<Counter> {
+    struct Tick {};
+
     using Inbox = std::tuple<Tick>;
     int handled = 0;
     void on(Tick&) { ++handled; }
@@ -161,7 +157,7 @@ TEST_CASE("two modules exchange a message via send, observed by run_one") {
     PingPongApp app;
     app.start();
 
-    app.post(make_external_envelope<PingResponder>(Ping{42}));
+    app.post(make_external_envelope<PingResponder>(PingResponder::Ping{42}));
 
     CHECK(app.get<PingResponder>().pings_seen == 0);
     CHECK(app.get<PongCatcher>().pongs_seen == 0);
@@ -188,7 +184,7 @@ TEST_CASE("run_one drains messages posted during dispatch") {
     app.start();
 
     for (int i = 0; i < 5; ++i) {
-        app.post(make_external_envelope<PingResponder>(Ping{i}));
+        app.post(make_external_envelope<PingResponder>(PingResponder::Ping{i}));
     }
 
     app.run_one();
@@ -221,7 +217,7 @@ TEST_CASE("shutdown drains queue before on_stop") {
     PingPongApp app;
     app.start();
 
-    app.post(make_external_envelope<PingResponder>(Ping{7}));
+    app.post(make_external_envelope<PingResponder>(PingResponder::Ping{7}));
     // No run_one — let shutdown's drain handle it.
     app.shutdown();
 
@@ -238,7 +234,7 @@ TEST_CASE("drain budget exhaustion logs WARN and aborts remaining drain") {
         app.start();
 
         for (int i = 0; i < 5; ++i) {
-            app.post(make_external_envelope<Counter>(Tick{}));
+            app.post(make_external_envelope<Counter>(Counter::Tick{}));
         }
         CHECK(app.get<Counter>().handled == 0);
 
@@ -260,7 +256,7 @@ TEST_CASE("drain budget exactly drains the configured count") {
     app.start();
 
     for (int i = 0; i < 5; ++i) {
-        app.post(make_external_envelope<Counter>(Tick{}));
+        app.post(make_external_envelope<Counter>(Counter::Tick{}));
     }
 
     // Drain exactly 2 envelopes; 3 remain in the queue.
@@ -281,7 +277,7 @@ TEST_CASE("post is thread-safe; foreign thread enqueues drained by run_one") {
     std::atomic<bool> producer_done{false};
     std::thread producer([&] {
         for (int i = 0; i < 100; ++i) {
-            app.post(make_external_envelope<PingResponder>(Ping{i}));
+            app.post(make_external_envelope<PingResponder>(PingResponder::Ping{i}));
         }
         producer_done = true;
     });
@@ -305,7 +301,7 @@ TEST_CASE("run() returns after stop() once queue is drained") {
 
     // Post some work.
     for (int i = 0; i < 10; ++i) {
-        app.post(make_external_envelope<PingResponder>(Ping{i}));
+        app.post(make_external_envelope<PingResponder>(PingResponder::Ping{i}));
     }
 
     // Give the runner a chance to drain.
@@ -342,9 +338,9 @@ TEST_CASE("double start asserts") {
 // Foreign-thread post: stress + ordering coverage.
 // ---------------------------------------------------------------------------
 
-struct SeqMsg { int seq; };
-
 struct SeqRecorder : cortexflow::Module<SeqRecorder> {
+    struct SeqMsg { int seq; };
+
     using Inbox = std::tuple<SeqMsg>;
     std::vector<int> seen;
     void on(SeqMsg& msg) { seen.push_back(msg.seq); }
@@ -364,7 +360,7 @@ TEST_CASE(
     std::atomic<bool> producer_done{false};
     std::thread producer([&] {
         for (int i = 0; i < kN; ++i) {
-            app.post(make_external_envelope<SeqRecorder>(SeqMsg{i}));
+            app.post(make_external_envelope<SeqRecorder>(SeqRecorder::SeqMsg{i}));
         }
         producer_done = true;
     });
@@ -403,7 +399,7 @@ TEST_CASE("foreign-thread post wakes the main thread blocked in run()") {
 
     // Foreign-thread post: this is what should wake the loop.
     std::thread producer([&] {
-        app.post(make_external_envelope<PingResponder>(Ping{1}));
+        app.post(make_external_envelope<PingResponder>(PingResponder::Ping{1}));
     });
     producer.join();
 
@@ -431,7 +427,7 @@ TEST_CASE("foreign-thread post after stop() is silently dropped") {
     std::atomic<bool> producer_done{false};
     std::thread producer([&] {
         for (int i = 0; i < 50; ++i) {
-            app.post(make_external_envelope<PingResponder>(Ping{i}));
+            app.post(make_external_envelope<PingResponder>(PingResponder::Ping{i}));
         }
         producer_done = true;
     });
@@ -443,7 +439,7 @@ TEST_CASE("foreign-thread post after stop() is silently dropped") {
     // double-start, so we need shutdown first.)
     app.shutdown();
     app.start();
-    app.post(make_external_envelope<PingResponder>(Ping{99}));
+    app.post(make_external_envelope<PingResponder>(PingResponder::Ping{99}));
     app.run_one();
     CHECK(app.get<PingResponder>().pings_seen == 1);
     CHECK(app.get<PongCatcher>().last_seq == 99);
@@ -465,7 +461,7 @@ TEST_CASE("multiple foreign producers + main drainer preserve total count") {
         producers.emplace_back([&, p] {
             for (int i = 0; i < kPerProducer; ++i) {
                 app.post(make_external_envelope<SeqRecorder>(
-                    SeqMsg{p * kPerProducer + i}));
+                    SeqRecorder::SeqMsg{p * kPerProducer + i}));
             }
             ++producers_done;
         });
@@ -505,7 +501,7 @@ TEST_CASE("envelope to unknown module asserts during dispatch") {
     app.start();
 
     // Forge an envelope addressed to OrderA, which is not in PingPongApp.
-    auto ptr = make_message<Tick>(Tick{});
+    auto ptr = make_message<Counter::Tick>(Counter::Tick{});
     Envelope env(kNoSender, type_id<OrderA>(), std::move(ptr));
     app.post(std::move(env));
 
