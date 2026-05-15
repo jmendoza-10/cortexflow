@@ -29,14 +29,26 @@ try {
 // `ready-for-agent` to queue it; the agent flips it to `ready-for-human`
 // on success.
 
-const ISSUES_DIR = ".scratch/cortexflow-v1/issues";
+const SCRATCH_DIR = ".scratch";
 
 type Issue = { filename: string; slug: string; path: string; content: string };
 
-const ready: Issue[] = readdirSync(ISSUES_DIR)
-  .filter((f) => f.endsWith(".md"))
-  .map((filename) => {
-    const path = join(ISSUES_DIR, filename);
+const issueFiles = readdirSync(SCRATCH_DIR, { withFileTypes: true })
+  .filter((d) => d.isDirectory())
+  .flatMap((d) => {
+    const issuesDir = join(SCRATCH_DIR, d.name, "issues");
+    try {
+      return readdirSync(issuesDir)
+        .filter((f) => f.endsWith(".md"))
+        .map((filename) => ({ dir: issuesDir, filename }));
+    } catch {
+      return [];
+    }
+  });
+
+const ready: Issue[] = issueFiles
+  .map(({ dir, filename }) => {
+    const path = join(dir, filename);
     return {
       filename,
       slug: filename.replace(/\.md$/, ""),
@@ -48,7 +60,7 @@ const ready: Issue[] = readdirSync(ISSUES_DIR)
   .sort((a, b) => a.filename.localeCompare(b.filename));
 
 if (ready.length === 0) {
-  console.log(`No issues with 'Status: ready-for-agent' in ${ISSUES_DIR}.`);
+  console.log(`No issues with 'Status: ready-for-agent' under ${SCRATCH_DIR}/*/issues/.`);
   console.log(`Flip a Status line and re-run.`);
   process.exit(0);
 }

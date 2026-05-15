@@ -35,9 +35,15 @@ For each:
 - Why it was rejected.
 ```
 
+## Written
+
+| ID   | Decision                                                                                 |
+|------|------------------------------------------------------------------------------------------|
+| 0020 | [Receiver-owned messages nested in the handling module](0020-receiver-owned-messages.md) |
+
 ## Planned initial ADRs
 
-The architectural spine locked in the v1 design produced the following decisions. Each should become an ADR before implementation begins on the area it covers.
+The architectural spine locked in the v1 design produced the decisions below. Slots **001–019** are reserved for these; each should become an ADR before implementation begins on the area it covers. ADRs unrelated to the v1 spine take the next available number after the highest written ADR (currently 0020).
 
 | ID  | Decision                                                          |
 |-----|-------------------------------------------------------------------|
