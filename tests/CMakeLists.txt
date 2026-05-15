@@ -102,6 +102,16 @@ target_link_libraries(test_platform PRIVATE cortexflow doctest)
 
 add_test(NAME platform COMMAND test_platform)
 
+# End-to-end fixture against the minimal_app composition (issue 17). Links
+# against `minimal_app_lib` so the test exercises the exact same modules
+# and composition the runnable example uses.
+add_executable(test_minimal_app
+    integration/test_minimal_app.cpp
+)
+target_link_libraries(test_minimal_app PRIVATE minimal_app_lib doctest)
+
+add_test(NAME minimal_app COMMAND test_minimal_app)
+
 # No-target-ifdefs guard: PRD US 44 — "the same module code runs on every
 # supported environment without `#ifdef` walls in module code." Grep the
 # public headers, core sources, and the cross-target test for any
@@ -113,6 +123,7 @@ needle='CORTEXFLOW_TARGET_(HOST|POSIX|FREERTOS|BARE_METAL)'; \
 hits=$(grep -rEn \"$needle\" \
     '${CMAKE_SOURCE_DIR}/include/cortexflow' \
     '${CMAKE_SOURCE_DIR}/src/cortexflow' \
+    '${CMAKE_SOURCE_DIR}/examples/minimal_app' \
     '${CMAKE_CURRENT_SOURCE_DIR}/integration/test_platform.cpp' \
     2>/dev/null || true); \
 if [ -n \"$hits\" ]; then \

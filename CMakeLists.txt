@@ -82,6 +82,8 @@ if(NOT EXISTS "${_target_file}")
 endif()
 include("${_target_file}")
 
+add_subdirectory(examples/minimal_app)
+
 if(CORTEXFLOW_BUILD_TESTS)
     enable_testing()
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompileFail.cmake)

@@ -1,0 +1,31 @@
+#include "app.hpp"
+
+#include <cortexflow/assert.hpp>
+
+namespace minimal_app {
+
+namespace detail {
+Runtime* g_runtime = nullptr;
+}  // namespace detail
+
+App::App() {
+    CORTEXFLOW_ASSERT(detail::g_runtime == nullptr,
+        "minimal_app::App: a second App was constructed while another was "
+        "alive (the helpers cache()/timers() resolve through a single "
+        "pointer)");
+    detail::g_runtime = &rt_;
+}
+
+App::App(cortexflow::Clock& clock) : rt_(clock) {
+    CORTEXFLOW_ASSERT(detail::g_runtime == nullptr,
+        "minimal_app::App: a second App was constructed while another was "
+        "alive (the helpers cache()/timers() resolve through a single "
+        "pointer)");
+    detail::g_runtime = &rt_;
+}
+
+App::~App() {
+    detail::g_runtime = nullptr;
+}
+
+}  // namespace minimal_app
