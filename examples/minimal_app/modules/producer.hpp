@@ -4,8 +4,6 @@
 
 #include <cortexflow/module.hpp>
 
-#include "../messages.hpp"
-
 namespace minimal_app {
 
 // Producer — the writer of the Counter cache key.
@@ -25,6 +23,13 @@ namespace minimal_app {
 // lifetime of any module instance.
 class Producer : public cortexflow::Module<Producer> {
 public:
+    // Receiver-owned message types (ADR 0020): the inbound contract of this
+    // module lives next to its handlers. Bump is self-posted from on_start
+    // and from the Done handler; Done is sent by Consumer once a Counter
+    // change has been observed.
+    struct Bump {};
+    struct Done {};
+
     using Inbox = std::tuple<Bump, Done>;
 
     void on_start() override;

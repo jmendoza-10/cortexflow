@@ -18,7 +18,6 @@
 
 #include <app.hpp>
 #include <keys.hpp>
-#include <messages.hpp>
 #include <modules/consumer.hpp>
 #include <modules/producer.hpp>
 

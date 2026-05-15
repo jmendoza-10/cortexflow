@@ -4,6 +4,7 @@
 
 #include "../app.hpp"
 #include "../keys.hpp"
+#include "producer.hpp"
 
 namespace minimal_app {
 
@@ -22,7 +23,7 @@ void Consumer::handle(cortexflow::Envelope& env) {
     // and lets Processing transition back to Idle on the same envelope.
     if (env.payload_type_id() ==
         cortexflow::type_id<ProcessingTick>()) {
-        send<Producer>(Done{});
+        send<Producer>(Producer::Done{});
     }
     flow.step(env);
 }
@@ -52,12 +53,12 @@ cortexflow::StateDirective Idle::handle(
 // ---------------------------------------------------------------------------
 
 Processing::Locals::Locals()
-    : timer(timers().arm<Consumer>(kProcessingDelay, ProcessingTick{})) {}
+    : timer(timers().arm<Consumer>(kProcessingDelay, Consumer::ProcessingTick{})) {}
 
 cortexflow::StateDirective Processing::handle(
     cortexflow::FlowCtx&, cortexflow::Envelope& env) {
     if (env.payload_type_id() ==
-        cortexflow::type_id<ProcessingTick>()) {
+        cortexflow::type_id<Consumer::ProcessingTick>()) {
         return cortexflow::transition_to<Idle>();
     }
     return cortexflow::stay();

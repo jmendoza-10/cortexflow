@@ -13,10 +13,9 @@ examples/minimal_app/
 ├── main.cpp              the canonical three-line entry point
 ├── app.hpp / app.cpp     the App wrapper around Runtime, plus the global wiring
 ├── keys.hpp              cache keys (just `Counter`)
-├── messages.hpp          message types (Bump, Done, ProcessingTick)
 └── modules/
-    ├── producer.hpp/.cpp Producer module — owner of the Counter cache key
-    └── consumer.hpp/.cpp Consumer module — runs the Idle/Processing flow
+    ├── producer.hpp/.cpp Producer — owner of Counter; defines its own `Bump`/`Done`
+    └── consumer.hpp/.cpp Consumer — runs the Idle/Processing flow; defines its own `ProcessingTick`
 ```
 
 The matching integration tests live at `tests/integration/test_minimal_app.cpp`.
@@ -50,8 +49,9 @@ The matching integration tests live at `tests/integration/test_minimal_app.cpp`.
    `ProcessingTick`, addressed to Consumer.
 5. When the timer fires (driven by `ManualClock::advance` in tests, by a
    real-time backend in production), `ProcessingTick` arrives in
-   `Consumer.handle`. The handler intercepts it to `send<Producer>(Done{})`,
-   then forwards into `flow.step`. Processing returns
+   `Consumer.handle`. The handler intercepts it to
+   `send<Producer>(Producer::Done{})`, then forwards into `flow.step`.
+   Processing returns
    `transition_to<Idle>()` — the cycle resets.
 6. **`Producer.on(Done)`** increments `acks_` and posts another `Bump`,
    keeping `app.run()` busy.
