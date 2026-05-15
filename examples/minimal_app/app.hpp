@@ -41,9 +41,9 @@ inline constexpr std::chrono::milliseconds kProcessingDelay{10};
 // Cross-module access to the running runtime.
 //
 // State-locals (Idle's Subscription, Processing's Timer) and Producer's
-// `on(Bump&)` need to reach the cache / timer service. There is no per-module
-// back-ref in cortexflow v1, so the App's constructor installs a static
-// pointer to itself; the helpers below resolve through it.
+// `on(Producer::Bump&)` need to reach the cache / timer service. There is no
+// per-module back-ref in cortexflow v1, so the App's constructor installs a
+// static pointer to itself; the helpers below resolve through it.
 //
 // Lifetime: the pointer is non-null between App construction and destruction
 // — covering the entire `start → run/run_one → shutdown` window. Modules

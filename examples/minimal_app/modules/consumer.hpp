@@ -9,7 +9,6 @@
 #include <cortexflow/timer.hpp>
 
 #include "../keys.hpp"
-#include "../messages.hpp"
 
 namespace minimal_app {
 
@@ -36,8 +35,8 @@ struct Idle {
         cortexflow::FlowCtx& ctx, cortexflow::Envelope& env);
 };
 
-// Processing — armed with a Timer that fires `ProcessingTick` back to
-// Consumer after a fixed delay. The timer lifetime is bound to the locals,
+// Processing — armed with a Timer that fires `Consumer::ProcessingTick` back
+// to Consumer after a fixed delay. The timer lifetime is bound to the locals,
 // so transitioning out cancels the timer if it has not yet fired (PRD US 40).
 struct Processing {
     struct Locals {
@@ -54,14 +53,19 @@ struct Processing {
 //   - KeyChanged<Counter>: arrives from cache fanout while Idle is the active
 //     state (Idle's locals hold the subscription).
 //   - ProcessingTick: fired by Processing's state-local Timer. Consumer's
-//     module-level handler intercepts it to send `Done` back to Producer
-//     before forwarding into the flow, which then transitions back to Idle.
+//     module-level handler intercepts it to send `Producer::Done` back to
+//     Producer before forwarding into the flow, which then transitions back
+//     to Idle.
 //
 // Because every envelope is routed through `flow.step`, Consumer declares an
 // empty `Inbox` and overrides `handle` directly — the dispatch-table path in
 // `Module::handle` is bypassed (see test_flow.cpp for the same pattern).
 class Consumer : public cortexflow::Module<Consumer> {
 public:
+    // Receiver-owned message type (ADR 0020): ProcessingTick is self-sent by
+    // Processing's state-local Timer back into Consumer's queue.
+    struct ProcessingTick {};
+
     using Inbox = std::tuple<>;
 
     cortexflow::Flow<Consumer,
