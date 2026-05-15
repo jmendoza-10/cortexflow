@@ -1,6 +1,6 @@
 # `tests/integration/test_runtime.cpp`: nest message types into owning modules
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `.scratch/receiver-owned-messages/PRD.md` — user stories 9, 10, 11, 19, 20, 21, 22
 ADR: `docs/adr/0020-receiver-owned-messages.md`
 
@@ -34,3 +34,15 @@ This slice **does not** touch the framework-primitive tests exempted by ADR-0020
 ## Blocked by
 
 None — can start immediately. Independent of issue `01`; the two slices touch disjoint files and may be picked up in parallel.
+
+## Comments
+
+Implemented. Each free-standing message struct in `tests/integration/test_runtime.cpp` is now a `public` nested struct inside its receiving module (`PingResponder::Ping`, `PongCatcher::Pong`, `Counter::Tick`, `SeqRecorder::SeqMsg`), and every construction site uses the qualified name.
+
+One small structural change worth flagging for the reviewer: I reordered `PongCatcher` to be defined before `PingResponder` and dropped the `struct PongCatcher;` forward declaration. `PingResponder::on(Ping&)` now constructs `PongCatcher::Pong{msg.seq}` directly, which needs `PongCatcher` to be complete at that point. The `ModuleList<PingResponder, PongCatcher>` ordering is unchanged, so the visible runtime behaviour (start/stop order, dispatch order) is identical.
+
+The forge-unknown-target test that previously used a bare `Tick` payload now uses `Counter::Tick` — same shape, just qualified.
+
+Verified clean builds and all 20 tests passing under: host+gcc, host+clang, posix+gcc, posix+clang, and host+gcc with `-DCORTEXFLOW_TRACE_LEVEL=FULL` (plus posix+clang with FULL trace for symmetry). `tests/unit/test_module.cpp`, `tests/unit/test_type_name.cpp`, `tests/integration/test_flow.cpp`, and `tests/integration/test_cache.cpp` are untouched.
+
+— 2026-05-15, from sandcastle agent
