@@ -57,3 +57,8 @@ Thumbs.db
 *.gcov
 coverage/
 lcov.info
+
+# afk drain runtime state — track config and prompt-template only
+.afk/*
+!.afk/config
+!.afk/prompt-template.md
