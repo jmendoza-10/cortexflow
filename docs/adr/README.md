@@ -37,9 +37,10 @@ For each:
 
 ## Written
 
-| ID   | Decision                                                                                 |
-|------|------------------------------------------------------------------------------------------|
-| 0020 | [Receiver-owned messages nested in the handling module](0020-receiver-owned-messages.md) |
+| ID   | Decision                                                                                              |
+|------|-------------------------------------------------------------------------------------------------------|
+| 0020 | [Receiver-owned messages nested in the handling module](0020-receiver-owned-messages.md)              |
+| 0021 | [Generated Flow diagrams and Module graphs from C++ source](0021-generated-diagrams-from-cpp-source.md) |
 
 ## Planned initial ADRs
 
@@ -54,7 +55,7 @@ The architectural spine locked in the v1 design produced the decisions below. Sl
 | 005 | Pluggable allocator with platform-default backends                |
 | 006 | Type-derived identity via `type_name<T>()`                        |
 | 007 | Smart data cache with typed keys and dynamic RAII subscriptions   |
-| 008 | One flowchart per module (v1)                                     |
+| 008 | One Flow per module (v1)                                          |
 | 009 | State functions return `StateDirective`; `transition_to_now`      |
 | 010 | Per-state RAII state-locals with framework-managed lifetime       |
 | 011 | Timer service as runtime-level facility                           |

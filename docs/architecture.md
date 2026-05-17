@@ -12,8 +12,8 @@
 A C++ framework for building **control-plane** systems whose job is to manage state, not move bulk data. Three composable primitives plus a shared data cache provide the entire programming surface:
 
 1. **Runtime** — owns the event loop, the message queue, the data cache, the timer service, and every module instance.
-2. **Modules** — typed classes that handle messages and (optionally) host a flowchart. One instance per type.
-3. **Flowcharts** — re-entrant state machines built from function pointers that return the next state to enter.
+2. **Modules** — typed classes that handle messages and (optionally) host a Flow. One instance per type.
+3. **Flows** — re-entrant state machines built from function pointers that return the next state to enter.
 4. **Smart data cache** — typed key-value store with RAII subscriptions; the third communication channel between modules.
 
 Workload characteristics: low-throughput, state-driven, latency-tolerant. Not a data plane.
@@ -24,8 +24,8 @@ Workload characteristics: low-throughput, state-driven, latency-tolerant. Not a 
 
 These principles override convenience when they conflict with it.
 
-1. **Deep modules, simple interfaces.** Modules hold significant internal complexity (the whole flowchart, its state-locals, its subscriptions, its timers) behind a small message surface. If a decision splits work across module boundaries, prefer to push it inside one module instead.
-2. **Single-threaded run-to-completion.** One thread runs the loop. Handlers run to completion or to a flowchart yield. No locks inside modules.
+1. **Deep modules, simple interfaces.** Modules hold significant internal complexity (the whole Flow, its state-locals, its subscriptions, its timers) behind a small message surface. If a decision splits work across module boundaries, prefer to push it inside one module instead.
+2. **Single-threaded run-to-completion.** One thread runs the loop. Handlers run to completion or to a Flow yield. No locks inside modules.
 3. **Type-derived identity.** No central enums for message IDs, cache keys, or module IDs. The C++ type *is* the identity. `type_name<T>()` generates the human-readable name.
 4. **Static composition.** The system's shape — which modules exist, which cache keys exist, who owns what — is expressed as a single type at compile time. Mis-wirings are compile errors at the composition site.
 5. **Portability without runtime polymorphism.** Platform-specific implementations are swapped at build time via typedefs and conditional compilation. No vtables across the platform seam.
@@ -235,7 +235,7 @@ template <class Target, class Msg, class... Args> void send(Args&&...);
 template <class Msg, class... Args>                void reply_to(const Envelope& in, Args&&...);
 ```
 
-`reply_to` sets `to = in.from`. No futures, no correlation IDs, no synchronous wait. If a module needs to wait for a reply, its flowchart enters a state whose only action is handling the reply message.
+`reply_to` sets `to = in.from`. No futures, no correlation IDs, no synchronous wait. If a module needs to wait for a reply, its Flow enters a state whose only action is handling the reply message.
 
 ---
 
@@ -303,21 +303,21 @@ struct ChargingActiveLocals {
 
 ### 7.6 Notification payload
 
-When a key changes, CortexFlow posts `KeyChanged<K> { old_value, new_value }` to each subscriber. The subscriber's `handle(KeyChanged<K>&)` does what it wants — typically forwards to its flowchart's `step()`.
+When a key changes, CortexFlow posts `KeyChanged<K> { old_value, new_value }` to each subscriber. The subscriber's `handle(KeyChanged<K>&)` does what it wants — typically forwards to its Flow's `step()`.
 
 Custom subscription→message mapping is out of scope for v1.
 
 ---
 
-## 8. Flowcharts
+## 8. Flows
 
 ### 8.1 Properties
 
-- **One flowchart per module** (v1).
+- **One Flow per module** (v1).
 - **Re-entrant.** A state function may yield (`stay()`) and resume on the next message.
 - **Dynamically shaped.** Any state function may return any other state function as the next. The flow graph is not statically declared.
-- **Opaque to the module.** The module knows the flow exists, can start/terminate/restart it, can react to `on_flow_done()`, but never inspects "which state is the flow in."
-- **Single-flow ownership.** The flowchart cannot exist outside its module.
+- **Opaque to the module.** The module knows the Flow exists, can start/terminate/restart it, can react to `on_flow_done()`, but never inspects "which state is the Flow in."
+- **Single-Flow ownership.** The Flow cannot exist outside its module.
 
 ### 8.2 State function signature
 
@@ -664,7 +664,7 @@ TEST_CASE("charging timeout fires after 30s") {
 
 ## 17. Deferred for v1 / explicit non-goals
 
-- Multiple flowcharts per module.
+- Multiple Flows per module.
 - Compile-time enforcement of cache-key write ownership (`Owned<K,M>` is currently documentation; assert may be added).
 - Request/response with futures and correlation IDs.
 - Custom subscription→message mapping (always posts `KeyChanged<K>`).
@@ -694,7 +694,7 @@ Each major decision merits a short ADR under `docs/adr/`. Suggested initial set:
 | 005 | Pluggable allocator with platform-default backends                |
 | 006 | Type-derived identity via `type_name<T>()`                        |
 | 007 | Smart data cache with typed keys and dynamic RAII subscriptions   |
-| 008 | One flowchart per module (v1)                                     |
+| 008 | One Flow per module (v1)                                          |
 | 009 | State functions return `StateDirective`; `transition_to_now`      |
 | 010 | Per-state RAII state-locals with framework-managed lifetime       |
 | 011 | Timer service as runtime-level facility                           |
@@ -715,10 +715,10 @@ ADRs are short (one page each): context, decision, consequences, alternatives co
 
 - **Envelope** — the queued unit. `{ to, from, MessagePtr }`.
 - **Boundary module** — a module that owns a thread crossing into the foreign world (OS APIs, hardware, external libs).
-- **Flow / flowchart** — a re-entrant state machine owned by exactly one module.
+- **Flow** — a re-entrant state machine owned by exactly one module. (Canonical glossary: see [`CONTEXT.md`](../CONTEXT.md).)
 - **State-locals** — the typed data block whose lifetime is exactly one state's tenure.
 - **`type_name<T>()`** — constexpr utility producing a stable, fully-qualified name for any type, used as identity for messages, cache keys, and modules.
 - **Cache key** — a C++ type with a `value_type` alias, registered in the composition.
 - **Subscription** — a RAII handle representing "this subscriber wants `KeyChanged<K>` for as long as I exist."
-- **RTC** — run-to-completion. Each handler runs to completion or to a flowchart yield before any other handler runs.
+- **RTC** — run-to-completion. Each handler runs to completion or to a Flow yield before any other handler runs.
 - **HAL** — hardware/OS abstraction layer; in CortexFlow, the typedef-swapped platform backends.

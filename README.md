@@ -5,8 +5,8 @@ A C++ framework for embedded control-plane state management.
 Three composable primitives plus a shared data cache:
 
 - **Runtime** — owns the event loop, message queue, data cache, timer service, and every module instance.
-- **Modules** — typed classes that handle messages and (optionally) host a flowchart. One instance per type.
-- **Flowcharts** — re-entrant state machines built from function pointers that return the next state to enter.
+- **Modules** — typed classes that handle messages and (optionally) host a Flow. One instance per type.
+- **Flows** — re-entrant state machines built from function pointers that return the next state to enter.
 - **Smart data cache** — typed key-value store with RAII subscriptions.
 
 ## Status
