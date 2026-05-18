@@ -1,9 +1,12 @@
 """CLI driver for `gen-diagrams.py`.
 
-Orchestrates: composition parser → Flow extractor → Mermaid renderer → write
-`<out>/flows/<module>.flow.mmd` for every Flow-owning Module in the
-application's `ModuleList<...>`. The Module graph is a separate slice; this
-CLI deliberately emits only Flow diagrams.
+Orchestrates two pipelines in a single invocation:
+
+    composition parser → Flow extractor       → render_flow         →
+        <out>/flows/<module>.flow.mmd  (one per Flow-owning Module)
+
+    composition parser → Module-graph extractor → render_module_graph →
+        <out>/modules/<app>.modules.mmd  (one per application)
 """
 
 from __future__ import annotations
@@ -14,8 +17,9 @@ from pathlib import Path
 from typing import List
 
 from .composition import CompositionError, parse
-from .flow_extractor import extract
-from .mermaid import render_flow
+from .flow_extractor import extract as extract_flow
+from .mermaid import render_flow, render_module_graph
+from .module_graph_extractor import extract as extract_module_graph
 
 
 DEFAULT_OUT = Path('docs/diagrams')
@@ -25,9 +29,10 @@ def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog='gen-diagrams.py',
         description=(
-            'Generate Flow diagrams from an application\'s app.hpp. '
-            'Writes one Mermaid file per Flow-owning Module in the '
-            'application\'s ModuleList<...>.'
+            'Generate Flow diagrams and a Module graph from an application\'s '
+            'app.hpp. Writes one Flow diagram per Flow-owning Module in the '
+            'application\'s ModuleList<...>, plus one Module graph per '
+            'application.'
         ),
     )
     parser.add_argument(
@@ -42,7 +47,8 @@ def main(argv: List[str] | None = None) -> int:
         default=str(DEFAULT_OUT),
         help=(
             f'Output directory for generated diagrams (default: {DEFAULT_OUT}). '
-            f'Flow diagrams are written under <out>/flows/.'
+            f'Flow diagrams are written under <out>/flows/; the Module graph '
+            f'is written under <out>/modules/.'
         ),
     )
     args = parser.parse_args(argv)
@@ -56,11 +62,13 @@ def main(argv: List[str] | None = None) -> int:
 
     out_root = Path(args.out)
     flows_dir = out_root / 'flows'
+    modules_dir = out_root / 'modules'
     flows_dir.mkdir(parents=True, exist_ok=True)
+    modules_dir.mkdir(parents=True, exist_ok=True)
 
     written: List[Path] = []
     for module in composition.modules:
-        flow_ir = extract(
+        flow_ir = extract_flow(
             module_name=module.name,
             app_namespace=composition.app_namespace,
             header_path=module.header_path,
@@ -68,26 +76,21 @@ def main(argv: List[str] | None = None) -> int:
         )
         if flow_ir is None:
             # Module has no Flow — skip silently. The Module still appears in
-            # the Module graph (a later slice); only Flow-owning Modules get
-            # a Flow diagram.
+            # the Module graph below; only Flow-owning Modules get a Flow
+            # diagram.
             continue
         out_path = flows_dir / f'{module.name.lower()}.flow.mmd'
-        mermaid_text = render_flow(flow_ir)
-        out_path.write_text(mermaid_text)
+        out_path.write_text(render_flow(flow_ir))
         written.append(out_path)
 
-    if written:
-        print(
-            'gen-diagrams.py: wrote Flow diagrams for '
-            f'{len(written)} module(s):'
-        )
-        for path in written:
-            print(f'  {path}')
-    else:
-        print(
-            'gen-diagrams.py: no Flow-owning Modules found in '
-            f'{app_hpp}\'s ModuleList<...>; no files written'
-        )
+    graph_ir = extract_module_graph(composition)
+    modules_path = modules_dir / f'{composition.app_short.lower()}.modules.mmd'
+    modules_path.write_text(render_module_graph(graph_ir))
+    written.append(modules_path)
+
+    print(f'gen-diagrams.py: wrote {len(written)} file(s):')
+    for path in written:
+        print(f'  {path}')
     return 0
 
 

@@ -2,9 +2,9 @@
 
 Invokes the CLI driver against `examples/minimal_app/app.hpp`, writes into a
 tempdir, and asserts byte-equality between the generated files and the
-files committed under `docs/diagrams/flows/`. This is the same check the
-CI guard in slice 03 will perform, so the test reproduces CI's verdict
-locally.
+files committed under `docs/diagrams/{flows,modules}/`. This is the same
+check the CI guard in slice 03 will perform, so the test reproduces CI's
+verdict locally.
 """
 
 import subprocess
@@ -15,6 +15,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APP_HPP = REPO_ROOT / 'examples' / 'minimal_app' / 'app.hpp'
 COMMITTED_FLOWS = REPO_ROOT / 'docs' / 'diagrams' / 'flows'
+COMMITTED_MODULES = REPO_ROOT / 'docs' / 'diagrams' / 'modules'
 GEN_DIAGRAMS = REPO_ROOT / 'scripts' / 'gen-diagrams.py'
 
 
@@ -32,15 +33,29 @@ def test_cli_matches_committed_diagrams(tmp_path):
         f'stderr={result.stderr!r}'
     )
 
-    generated = sorted((out_dir / 'flows').glob('*.flow.mmd'))
-    committed = sorted(COMMITTED_FLOWS.glob('*.flow.mmd'))
-    assert [p.name for p in generated] == [p.name for p in committed], (
+    generated_flows = sorted((out_dir / 'flows').glob('*.flow.mmd'))
+    committed_flows = sorted(COMMITTED_FLOWS.glob('*.flow.mmd'))
+    assert [p.name for p in generated_flows] == [p.name for p in committed_flows], (
         'Set of generated Flow diagrams diverged from the committed set. '
-        f'generated={[p.name for p in generated]} '
-        f'committed={[p.name for p in committed]}'
+        f'generated={[p.name for p in generated_flows]} '
+        f'committed={[p.name for p in committed_flows]}'
     )
 
-    for gen_path, com_path in zip(generated, committed):
+    for gen_path, com_path in zip(generated_flows, committed_flows):
+        assert gen_path.read_bytes() == com_path.read_bytes(), (
+            f'{gen_path.name} drifted from {com_path}. '
+            f'Regenerate with `python3 scripts/gen-diagrams.py {APP_HPP}`.'
+        )
+
+    generated_modules = sorted((out_dir / 'modules').glob('*.modules.mmd'))
+    committed_modules = sorted(COMMITTED_MODULES.glob('*.modules.mmd'))
+    assert [p.name for p in generated_modules] == [p.name for p in committed_modules], (
+        'Set of generated Module graphs diverged from the committed set. '
+        f'generated={[p.name for p in generated_modules]} '
+        f'committed={[p.name for p in committed_modules]}'
+    )
+
+    for gen_path, com_path in zip(generated_modules, committed_modules):
         assert gen_path.read_bytes() == com_path.read_bytes(), (
             f'{gen_path.name} drifted from {com_path}. '
             f'Regenerate with `python3 scripts/gen-diagrams.py {APP_HPP}`.'
