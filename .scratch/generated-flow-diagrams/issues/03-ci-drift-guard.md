@@ -1,6 +1,6 @@
 # CI drift guard for `docs/diagrams/`
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `.scratch/generated-flow-diagrams/PRD.md` — user stories 15, 16
 ADR: `docs/adr/0021-generated-diagrams-from-cpp-source.md`
 
@@ -34,3 +34,49 @@ A `make` or `npm`-style convenience target is out of scope; the script is invoke
 ## Blocked by
 
 `.scratch/generated-flow-diagrams/issues/01-flow-diagrams-end-to-end.md` (can run in parallel with `02-module-graph-end-to-end.md`)
+
+## Comments
+
+What I built:
+
+- Added a `diagrams-drift-guard` job to `.github/workflows/ci.yml` that runs
+  in parallel with `build-and-test`. It runs `python3
+  scripts/gen-diagrams.py examples/minimal_app/app.hpp` then `git diff
+  --exit-code docs/diagrams/`. On non-zero diff it prints a GitHub-annotated
+  error plus the exact two commands a contributor should run locally, then
+  exits 1.
+- Added `docs/diagrams/README.md` documenting the local reproduction (the
+  same two commands) and pointing at ADR-0021.
+
+Verified locally:
+
+- Clean state on this worktree: generator runs, `git diff --exit-code
+  docs/diagrams/` returns 0. Drift guard passes.
+- Stale state (simulated by staging a `STALE` line on
+  `consumer.flow.mmd`, then re-running the generator so the working tree
+  matches source but the index does not): the same shell block from the CI
+  step exits 1 and prints the regenerate-and-commit instructions. Matches
+  the CI semantics where `actions/checkout@v4` populates the index from
+  HEAD and any drift between HEAD's diagrams and the freshly generated
+  ones shows up as a non-empty `git diff`.
+
+Choices worth flagging:
+
+- Made the drift guard a separate job rather than a step inside
+  `build-and-test`. The existing matrix runs 4 combinations (gcc/clang x
+  host/posix); putting the check inside would run it 4x. A separate
+  ubuntu-latest job runs it once, in parallel with the C++ matrix, which
+  matches "before (or in parallel with) the C++ build" from the issue.
+- Did not add `actions/setup-python`. `ubuntu-latest` ships with Python 3
+  pre-installed and the generator is stdlib-only (per issue 01), so the
+  toolchain note in the issue ("whatever is already available on the CI
+  runner") is satisfied without an extra step.
+- Did not modify `gen-diagrams.py` or anything under `scripts/diagrams/`
+  — that is issue 01/02 territory and out of scope here.
+
+Skipped / deferred: nothing. All acceptance-criteria checkboxes are
+covered by this diff. The last checkbox ("full CI suite green on the
+merge commit") will be confirmed by the human merging — I cannot
+observe the merge-commit CI run from inside this worktree.
+
+— 2026-05-18, from afk worker
