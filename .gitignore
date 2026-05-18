@@ -62,3 +62,8 @@ lcov.info
 .afk/*
 !.afk/config
 !.afk/prompt-template.md
+
+# Python (diagram generator tooling)
+__pycache__/
+*.pyc
+.pytest_cache/
