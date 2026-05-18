@@ -1,6 +1,6 @@
 # Flow diagrams end-to-end for an application
 
-Status: ready-for-agent
+Status: ready-for-merge
 PRD: `.scratch/generated-flow-diagrams/PRD.md` — user stories 1–5, 11, 12, 14, 17, 19, 20, 22, 23 (flows), 25, 26, 27, 28, 29
 ADR: `docs/adr/0021-generated-diagrams-from-cpp-source.md`
 
