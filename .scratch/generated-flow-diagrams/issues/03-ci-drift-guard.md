@@ -1,6 +1,6 @@
 # CI drift guard for `docs/diagrams/`
 
-Status: ready-for-agent
+Status: ready-for-merge
 PRD: `.scratch/generated-flow-diagrams/PRD.md` — user stories 15, 16
 ADR: `docs/adr/0021-generated-diagrams-from-cpp-source.md`
 
