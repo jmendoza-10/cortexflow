@@ -41,10 +41,12 @@ For each:
 |------|-------------------------------------------------------------------------------------------------------|
 | 0020 | [Receiver-owned messages nested in the handling module](0020-receiver-owned-messages.md)              |
 | 0021 | [Generated Flow diagrams and Module graphs from C++ source](0021-generated-diagrams-from-cpp-source.md) |
+| 0022 | [PRIVATE compile flags for `-fno-rtti` and `-fno-exceptions`](0022-private-compile-flags-for-rtti-and-exceptions.md) |
+| 0023 | [Release-packaging strategy for v0.1.0+](0023-release-packaging-strategy.md)                          |
 
 ## Planned initial ADRs
 
-The architectural spine locked in the v1 design produced the decisions below. Slots **001–019** are reserved for these; each should become an ADR before implementation begins on the area it covers. ADRs unrelated to the v1 spine take the next available number after the highest written ADR (currently 0020).
+The architectural spine locked in the v1 design produced the decisions below. Slots **001–019** are reserved for these; each should become an ADR before implementation begins on the area it covers. ADRs unrelated to the v1 spine take the next available number after the highest written ADR (currently 0023).
 
 | ID  | Decision                                                          |
 |-----|-------------------------------------------------------------------|

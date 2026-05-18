@@ -26,6 +26,64 @@ Pre-implementation. The full design is locked and lives in [`docs/architecture.m
 2. Skim [`docs/adr/`](docs/adr/) — short rationale documents for each major decision.
 3. The repo skeleton mirrors section 15 of the architecture doc.
 
+## Build and test
+
+Requirements: CMake ≥ 3.20, a C++17 compiler (GCC or Clang), Ninja or Make. Python 3 with `pytest` is required to run the diagram-tooling tests.
+
+### Host build (default)
+
+```sh
+cmake -S . -B build -DCORTEXFLOW_BUILD_TESTS=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+This builds the `cortexflow` static library, the `minimal_app` example, and the doctest-based unit + integration tests, then runs every test registered with CTest (including the compile-fail suite).
+
+### Cross-target builds
+
+Select a platform backend with `-DCORTEXFLOW_TARGET=<name>` (`host`, `posix`, `freertos`, `bare_metal`):
+
+```sh
+cmake -S . -B build-posix -DCORTEXFLOW_BUILD_TESTS=ON -DCORTEXFLOW_TARGET=posix
+cmake --build build-posix -j
+ctest --test-dir build-posix --output-on-failure
+```
+
+### ThreadSanitizer build (host only)
+
+```sh
+cmake -S . -B build_tsan -DCORTEXFLOW_BUILD_TESTS=ON -DCORTEXFLOW_ENABLE_TSAN=ON
+cmake --build build_tsan -j
+ctest --test-dir build_tsan --output-on-failure
+```
+
+### Trace verbosity
+
+`-DCORTEXFLOW_TRACE_LEVEL=<OFF|ERROR|WARN|INFO|DISPATCH|FULL>` controls compile-time trace filtering (default `DISPATCH`). Use `FULL` for the noisiest output when debugging tests.
+
+### Diagram-tooling tests (Python)
+
+The flow-diagram extractor under `scripts/` has its own pytest suite:
+
+```sh
+pytest
+```
+
+Run from the repo root; `pytest.ini` points it at `scripts/tests/`.
+
+### Run everything CI runs
+
+```sh
+cmake -S . -B build -DCORTEXFLOW_BUILD_TESTS=ON -DCORTEXFLOW_TRACE_LEVEL=FULL
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+pytest
+python3 scripts/gen-diagrams.py examples/minimal_app/app.hpp && git diff --exit-code docs/diagrams/
+```
+
+The last line is the drift guard CI enforces — it must report no diff.
+
 ## Layout
 
 ```

@@ -51,6 +51,24 @@ The top-level coordinator. Owns the event loop, the message queue, the cache, th
 **Boundary module**:
 By convention, a module that interacts with the outside world (sensors, sockets, hardware peripherals). Not an enforced base class — just a label for modules that bridge external events into the runtime queue (ADR-017).
 
+**Platform backend**:
+The per-target tree under `platform/<target>/` that provides the typedef-swapped `<cortexflow/platform.hpp>` header and the matching `.cpp` implementations of the clock, allocator, and trace sink. Selected at CMake configure time by `CORTEXFLOW_TARGET=<target>`; in-tree backends are `host` and `posix` (with `freertos` and `bare_metal` reserved). Adding a backend means writing `platform/<target>/` plus `cmake/targets/<target>.cmake` — no other file in the tree references the target by name.
+
+### Release surface
+
+The union of files, types, and CMake targets that CortexFlow promises to keep stable within a major version. Anything *not* on the release surface (e.g. `src/cortexflow/` internals, files under `platform/<target>/` other than `cortexflow/platform.hpp`, cache-variable names, directory layout) is free to change between any two tagged releases.
+
+**Core API surface**:
+The headers under `include/cortexflow/`. Source-level changes here are breaking.
+
+**Platform surface**:
+The single header `platform/<target>/cortexflow/platform.hpp` for each shipped target. Per-target — a change to host's `platform.hpp` only breaks consumers using `CORTEXFLOW_TARGET=host`. Adding a new backend is non-breaking; removing an existing backend is breaking for that target.
+
+**Build surface**:
+The `cortexflow::cortexflow` CMake target — its name, the include directories it propagates, the compile features it requires, the link dependencies it pulls in. The build-time cache variable `CORTEXFLOW_TARGET` (and its accepted values) is part of the build surface; cache-variable internals like `CORTEXFLOW_TRACE_LEVEL_VALUE` are not.
+
+CortexFlow promises **source-level API compatibility** across the release surface within a major version. It does **not** promise binary ABI — everything significant is templated, so consumers re-instantiate against their own module and cache-key lists on every rebuild.
+
 ## Relationships
 
 - A **Module** declares an **Inbox** that lists the **Messages** it accepts
