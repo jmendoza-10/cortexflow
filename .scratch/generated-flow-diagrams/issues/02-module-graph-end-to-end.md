@@ -1,6 +1,6 @@
 # Module graph end-to-end for an application
 
-Status: ready-for-agent
+Status: ready-for-merge
 PRD: `.scratch/generated-flow-diagrams/PRD.md` — user stories 6–10, 13, 21, 22, 23 (modules), 25 (E2E), 27, 28, 29 (extended), 30
 ADR: `docs/adr/0021-generated-diagrams-from-cpp-source.md`
 
