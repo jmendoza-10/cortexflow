@@ -7,6 +7,25 @@ on:
     branches: [main]
 
 jobs:
+  diagrams-drift-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Regenerate diagrams from C++ source
+        run: python3 scripts/gen-diagrams.py examples/minimal_app/app.hpp
+
+      - name: Check docs/diagrams/ is in sync with source
+        run: |
+          if ! git diff --exit-code docs/diagrams/; then
+            echo ""
+            echo "::error::docs/diagrams/ is out of sync with the C++ source."
+            echo "Regenerate locally and commit the result:"
+            echo "  python3 scripts/gen-diagrams.py examples/minimal_app/app.hpp"
+            echo "  git add docs/diagrams/ && git commit"
+            exit 1
+          fi
+
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
