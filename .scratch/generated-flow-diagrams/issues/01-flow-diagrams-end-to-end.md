@@ -1,6 +1,6 @@
 # Flow diagrams end-to-end for an application
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `.scratch/generated-flow-diagrams/PRD.md` — user stories 1–5, 11, 12, 14, 17, 19, 20, 22, 23 (flows), 25, 26, 27, 28, 29
 ADR: `docs/adr/0021-generated-diagrams-from-cpp-source.md`
 
@@ -52,3 +52,75 @@ The script refuses any input that is not a file containing a `Runtime<ModuleList
 ## Blocked by
 
 None — can start immediately.
+
+## Comments
+
+Built end-to-end pipeline at `scripts/gen-diagrams.py` and the
+`scripts/diagrams/` package; `docs/diagrams/flows/consumer.flow.mmd`
+is generated and committed. `python3 -m pytest scripts/` runs 26
+green tests across the four required suites (brace-scope unit,
+Flow-extractor unit, Mermaid snapshot, end-to-end CLI).
+
+What the reviewer should look at:
+
+- **Mermaid diagram type is `graph LR`.** ADR-0021's naming sweep
+  retires `flowchart` as a term shadowing the **Flow** primitive.
+  Mermaid still calls the rendered diagram a flowchart internally, but
+  the deprecated `graph` synonym keeps the forbidden word out of every
+  source file and out of the rendered `.mmd` itself. If you'd prefer
+  the renderer use `stateDiagram-v2` (semantically closer to a state
+  machine), call it out — that switch costs the per-edge arrow-style
+  distinction between `Transition` and `TransitionNow` because v2's
+  edge syntax does not support per-edge classes.
+- **Edge labels HTML-escape `<`, `>`, `&`.** GitHub's Mermaid preview
+  interprets `<` as the start of an HTML tag even inside quoted
+  labels, which silently drops the rest of the label. Hence
+  `KeyChanged&lt;Counter&gt;` in the committed file. If the renderer
+  is later swapped, the IR's `message` field is still the raw type
+  text; escaping happens in `mermaid.py` only.
+- **Initial state marker uses a small filled circle pseudo-node
+  (`__start`).** Mermaid `graph LR` does not have a first-class
+  "start" shape the way `stateDiagram-v2` does (`[*] --> X`). The
+  pseudo-node is the closest visual equivalent and avoids reserved
+  identifiers.
+- **`done()` edges converge on a shared terminal pseudo-node
+  (`__end`).** A flow with multiple `done()` calls produces multiple
+  edges into the same terminal. If a future user case needs distinct
+  terminal sinks per `done()` site (rare), this is the place to
+  branch.
+- **Constructor initializer lists are accepted by the brace tracker.**
+  `consumer.cpp`'s `Idle::Locals::Locals() : sub(...) {}` form is
+  exercised both by the brace-scope tests and the E2E run.
+- **The Flow extractor finds the `Flow<Owner, StateList<...>, Tag>`
+  template declaration via regex on neutralized header text.** It
+  matches the first `Flow<>` whose `Owner` short name equals the
+  module being extracted; this is fine for v1 because the framework's
+  one-Flow-per-Module discipline (ADR-0021) means there is exactly
+  one match per module.
+- **Producer has no `Flow<...>` and produces no `.mmd` file.** The
+  extractor returns `None` and the CLI skips it without writing an
+  empty diagram; this is exercised by
+  `test_module_without_flow_returns_none`.
+
+Deferred (not in scope for this slice, called out for the next
+slices):
+
+- **Module graph extraction and `render_module_graph`.** This slice
+  emits Flow diagrams only. The IR module deliberately ships only
+  `FlowIR`; the Module-graph IR lands with slice 02 (the
+  Module-graph extractor).
+- **CI guard step.** ADR-0021 specifies a CI job that regenerates and
+  diffs `docs/diagrams/`. That is slice 03 and is intentionally not
+  wired up here; the E2E test reproduces the guard's check locally so
+  drift is catchable without CI.
+- **State `Locals` decorations on diagram nodes.** PRD calls this out
+  as v1-deferred. Nodes are bare State names; no `Locals` type or
+  constructor side-effect rendering.
+- **Diagnostics for unparseable Flows.** A `handle()` body that hides
+  a directive behind a macro, or computes the next State dynamically,
+  is silently invisible to the extractor. ADR-0021 explicitly accepts
+  this trade-off for v1; the CI guard in slice 03 closes the silent-
+  drift loop. A follow-up could tighten extractor diagnostics if real
+  drift surfaces.
+
+— 2026-05-18, from afk worker
