@@ -30,7 +30,7 @@ add_test(NAME trace_elision
     COMMAND sh -c "\
 ${CMAKE_CXX_COMPILER} -std=c++17 -fno-rtti -fno-exceptions -O2 \
     -DCORTEXFLOW_TRACE_LEVEL_VALUE=0 \
-    -I${CMAKE_SOURCE_DIR}/include \
+    -I${PROJECT_SOURCE_DIR}/include \
     -c ${CMAKE_CURRENT_SOURCE_DIR}/unit/trace_elision_check.cpp \
     -o ${CMAKE_CURRENT_BINARY_DIR}/trace_elision_check.o \
 && ! nm ${CMAKE_CURRENT_BINARY_DIR}/trace_elision_check.o 2>/dev/null | grep -q trace_emit"
@@ -121,9 +121,9 @@ add_test(NAME no_target_ifdefs
     COMMAND sh -c "\
 needle='CORTEXFLOW_TARGET_(HOST|POSIX|FREERTOS|BARE_METAL)'; \
 hits=$(grep -rEn \"$needle\" \
-    '${CMAKE_SOURCE_DIR}/include/cortexflow' \
-    '${CMAKE_SOURCE_DIR}/src/cortexflow' \
-    '${CMAKE_SOURCE_DIR}/examples/minimal_app' \
+    '${PROJECT_SOURCE_DIR}/include/cortexflow' \
+    '${PROJECT_SOURCE_DIR}/src/cortexflow' \
+    '${PROJECT_SOURCE_DIR}/examples/minimal_app' \
     '${CMAKE_CURRENT_SOURCE_DIR}/integration/test_platform.cpp' \
     2>/dev/null || true); \
 if [ -n \"$hits\" ]; then \

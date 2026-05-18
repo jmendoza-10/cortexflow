@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(cortexflow LANGUAGES CXX)
+project(cortexflow VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,6 +7,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(CORTEXFLOW_BUILD_TESTS "Build tests" OFF)
 option(CORTEXFLOW_ENABLE_TSAN "Build with ThreadSanitizer (host only)" OFF)
+
+# Examples default ON when CortexFlow is the top-level project, OFF when it is
+# consumed as a sub-project (FetchContent / add_subdirectory). A sub-project
+# consumer can still force-enable by passing -DCORTEXFLOW_BUILD_EXAMPLES=ON.
+# See ADR-0023 (Sub-project consumption contract).
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(_cortexflow_examples_default ON)
+else()
+    set(_cortexflow_examples_default OFF)
+    # project()-set variables (cortexflow_VERSION et al.) are directory-scoped
+    # and do not reach the consumer's scope on their own. Re-emit them with
+    # PARENT_SCOPE so a sub-project consumer can read ${cortexflow_VERSION}
+    # after FetchContent_MakeAvailable / add_subdirectory, as ADR-0023 promises.
+    set(cortexflow_VERSION       ${PROJECT_VERSION}       PARENT_SCOPE)
+    set(cortexflow_VERSION_MAJOR ${PROJECT_VERSION_MAJOR} PARENT_SCOPE)
+    set(cortexflow_VERSION_MINOR ${PROJECT_VERSION_MINOR} PARENT_SCOPE)
+    set(cortexflow_VERSION_PATCH ${PROJECT_VERSION_PATCH} PARENT_SCOPE)
+endif()
+option(CORTEXFLOW_BUILD_EXAMPLES "Build examples" ${_cortexflow_examples_default})
 
 # Platform target selection (PRD §Platform portability, user stories 44, 48).
 # Each value resolves to `cmake/targets/<value>.cmake`, which wires the
@@ -57,9 +76,15 @@ target_include_directories(cortexflow PUBLIC
 target_compile_definitions(cortexflow PUBLIC
     CORTEXFLOW_TRACE_LEVEL_VALUE=${_trace_level_val}
 )
-target_compile_options(cortexflow PUBLIC
+# `-fno-rtti -fno-exceptions` are PRIVATE so they apply when compiling
+# cortexflow's own sources but do not propagate to consumers — see ADR-0022.
+# `-Wall -Wextra -Wpedantic` stay PUBLIC: they are warning flags, not
+# behavior-changing, and propagating them to consumers is harmless.
+target_compile_options(cortexflow PRIVATE
     -fno-rtti
     -fno-exceptions
+)
+target_compile_options(cortexflow PUBLIC
     -Wall
     -Wextra
     -Wpedantic
@@ -82,7 +107,9 @@ if(NOT EXISTS "${_target_file}")
 endif()
 include("${_target_file}")
 
-add_subdirectory(examples/minimal_app)
+if(CORTEXFLOW_BUILD_EXAMPLES)
+    add_subdirectory(examples/minimal_app)
+endif()
 
 if(CORTEXFLOW_BUILD_TESTS)
     enable_testing()
