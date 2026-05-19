@@ -1,6 +1,6 @@
 # CMake hygiene: make CortexFlow safe to consume as a sub-project
 
-Status: ready-for-agent
+Status: ready-for-human
 PRD: `.scratch/release-packaging-v0.1.0/PRD.md` — user stories 3, 4, 5, 9, 20, 21, 22, 23, 24
 ADRs: `docs/adr/0022-private-compile-flags-for-rtti-and-exceptions.md`, `docs/adr/0023-release-packaging-strategy.md`
 
