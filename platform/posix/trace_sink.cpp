@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // POSIX backend: weak `platform_trace_sink` default — one structured
 // single-line record per call, written via `write(STDERR_FILENO, ...)`
 // (architecture §12.3 names POSIX's default as "Structured single-line

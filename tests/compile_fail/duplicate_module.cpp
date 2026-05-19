@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // This file must NOT compile successfully.
 // Verifies the Runtime-level static_assert that catches a duplicate module
 // type declared in `ModuleList`.

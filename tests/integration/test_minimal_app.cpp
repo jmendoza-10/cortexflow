@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // End-to-end scenarios against the minimal example app
 // (examples/minimal_app/). This test file is the integration fixture called
 // for in PRD §Testing — "A minimal composed system (also used as

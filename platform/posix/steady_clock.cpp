@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // POSIX backend: `SteadyClock::now()` reads `clock_gettime(CLOCK_MONOTONIC)`
 // directly. Architecture §9.3 names this as the canonical POSIX path; on
 // glibc/musl `std::chrono::steady_clock` resolves to the same syscall so the

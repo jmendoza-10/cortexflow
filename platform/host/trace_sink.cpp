@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // Host backend: weak `platform_trace_sink` default — `fprintf(stderr, ...)`
 // with timestamps relative to first trace call (architecture §12.3).
 //

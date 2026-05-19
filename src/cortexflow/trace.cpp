@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 #include <cortexflow/trace.hpp>
 
 // `platform_trace_sink` (the weak default) lives in the platform backend —
