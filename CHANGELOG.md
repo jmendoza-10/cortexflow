@@ -25,11 +25,13 @@ surface are not breaking and do not require a version bump.
 
 ### Security
 
-## [0.1.0] - YYYY-MM-DD
+## [0.1.0] - 2026-05-19
 
 First tagged release. The framework is consumable as a CMake sub-project
 via `FetchContent` (or vendoring as a drop-in fallback), in v0.x posture
-pending the architectural-spine ADRs (001–019).
+pending the architectural-spine ADRs (001–019). The release-packaging
+contract is documented in
+[ADR-0023](docs/adr/0023-release-packaging-strategy.md).
 
 ### Added
 
@@ -42,6 +44,12 @@ pending the architectural-spine ADRs (001–019).
   `FetchContent_MakeAvailable`, then links the `cortexflow` target.
   Smoke-tested by an in-tree consumer at
   `tests/integration/fetchcontent_consumer/` that runs on every CI build.
+- `CORTEXFLOW_TARGET` cache variable as the documented platform-backend
+  selection mechanism (`host`, `posix`, `freertos`, `bare_metal`), wired
+  through `cmake/targets/<target>.cmake` so adding a new backend is a
+  two-file change with no edits to the top-level `CMakeLists.txt`. An
+  unknown value fails fast with a `FATAL_ERROR` that points at
+  `docs/agents/platform-backends.md`.
 - `CORTEXFLOW_BUILD_EXAMPLES` cache option, defaulting `ON` when
   CortexFlow is the top-level project and `OFF` when consumed as a
   sub-project, so `examples/minimal_app` no longer leaks into a
@@ -52,7 +60,19 @@ pending the architectural-spine ADRs (001–019).
 - `CHANGELOG.md` (this file), `docs/releasing.md` runbook, and
   `.github/workflows/release.yml` tag-triggered workflow: cutting a
   release is now a documented manual process plus an automated matrix
-  run and GitHub Release publication.
+  run and GitHub Release publication. The workflow extracts release
+  notes for the pushed tag from the matching `## [X.Y.Z]` section of
+  this file.
+- README "Consuming CortexFlow" section documenting the FetchContent
+  stanza, the vendoring fallback, the `CORTEXFLOW_TARGET` idiom, the
+  PRIVATE-flag posture, and the link to the Release surface — a single
+  canonical place to read the consumption contract.
+- Two new ADRs:
+  [ADR-0022](docs/adr/0022-private-compile-flags-for-rtti-and-exceptions.md)
+  (PRIVATE `-fno-rtti -fno-exceptions`) and
+  [ADR-0023](docs/adr/0023-release-packaging-strategy.md)
+  (release-packaging strategy, v0.x posture, semver rules,
+  graduation criterion to `v1.0.0`).
 
 ### Changed
 
