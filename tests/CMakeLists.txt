@@ -140,6 +140,27 @@ add_test(NAME spdx_headers
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/check_spdx_headers.sh ${PROJECT_SOURCE_DIR}
 )
 
+# FetchContent consumer smoke test (issue 03 / ADR-0023). Lives as its own
+# top-level CMake project under tests/integration/fetchcontent_consumer/ and
+# exercises the consumption contract end-to-end from a real consumer's POV:
+# FetchContent_Declare against the in-tree source, CORTEXFLOW_TARGET=posix,
+# linking the cortexflow target, plus a translation unit that uses
+# `throw`/`dynamic_cast` to prove ADR-0022's PRIVATE flags don't leak.
+# Run as a single test that does cmake configure + cmake --build in a fresh
+# build dir; either step failing fails the test.
+add_test(NAME fetchcontent_consumer
+    COMMAND sh -c "set -e; \
+        '${CMAKE_COMMAND}' -E rm -rf '${CMAKE_BINARY_DIR}/fetchcontent_consumer_build' && \
+        '${CMAKE_COMMAND}' \
+            -S '${CMAKE_CURRENT_SOURCE_DIR}/integration/fetchcontent_consumer' \
+            -B '${CMAKE_BINARY_DIR}/fetchcontent_consumer_build' \
+            -G '${CMAKE_GENERATOR}' \
+            -DCMAKE_C_COMPILER='${CMAKE_C_COMPILER}' \
+            -DCMAKE_CXX_COMPILER='${CMAKE_CXX_COMPILER}' \
+            -DCORTEXFLOW_ENABLE_TSAN='${CORTEXFLOW_ENABLE_TSAN}' && \
+        '${CMAKE_COMMAND}' --build '${CMAKE_BINARY_DIR}/fetchcontent_consumer_build'"
+)
+
 # Compile-fail tests: each file must be rejected by the compiler. The
 # composition-validator tests additionally verify that the diagnostic contains
 # the static_assert message — that wording is the front-door error users see,
