@@ -1,6 +1,6 @@
 # README: add "Consuming CortexFlow" section and retire stale status line
 
-Status: ready-for-agent
+Status: merged
 PRD: `.scratch/release-packaging-v0.1.0/PRD.md` — user stories 1, 2, 3, 7, 8, 12, 31
 ADR: `docs/adr/0023-release-packaging-strategy.md`
 
@@ -73,3 +73,26 @@ Slice 3 (smoke test) is a nice-to-have-first for confidence but not a hard prere
 - This slice is pure documentation. Do not change any CMake, code, or workflow files. If you find yourself wanting to, that work belongs in a different slice.
 - The Consuming section is the consumer's entry point. Optimize it for "I am a consumer and want to integrate CortexFlow into my CMake build in the next 5 minutes." Anything that doesn't serve that goal — internal architecture, framework concepts, why the design is this way — belongs elsewhere in the docs and should be linked, not inlined.
 - Use the exact term **Platform backend** when referring to the value of `CORTEXFLOW_TARGET` (this is the term defined in CONTEXT.md). Consistency with the glossary matters more here than English-prose fluidity.
+
+## Comments
+
+Built (2026-05-19, from afk worker):
+
+- Replaced the `## Status` paragraph with a one-sentence v0.x posture statement that keeps the link to `docs/architecture.md` and adds links to ADR-0023 and CONTEXT.md → *Release surface*.
+- Added a new `## Consuming CortexFlow` section between "Where to start" and "Build and test" containing:
+  - One-paragraph framing that names FetchContent as primary, vendoring as fallback, and the deferred status of `find_package` / prebuilt binaries (referencing ADR-0023).
+  - The full FetchContent `cmake` block (`FetchContent_Declare` + `set(CORTEXFLOW_TARGET ... CACHE STRING "" FORCE)` + `FetchContent_MakeAvailable` + `target_link_libraries`), with `https://github.com/<owner>/cortexflow.git` as a marked placeholder and `v0.1.0` as the tag.
+  - The four-row `CORTEXFLOW_TARGET` reference table exactly as specified (`host`, `posix` implemented; `freertos`, `bare_metal` placeholders).
+  - The one-sentence note on why `set(... CACHE STRING "" FORCE)` is required.
+  - A vendoring `cmake` block using `add_subdirectory(third_party/cortexflow)` with the same backend-selection step.
+  - An "Exceptions and RTTI" note linking to ADR-0022.
+  - A short "Stability" subsection linking to CONTEXT.md → *Release surface* and ADR-0023.
+- Used the exact glossary term **Platform backend** consistently when referring to `CORTEXFLOW_TARGET` values.
+
+Notes for reviewer:
+
+- Anchor link to `CONTEXT.md#release-surface` assumes default GitHub auto-anchoring of the `### Release surface` heading; verify it renders if the README is viewed on GitHub.
+- The status sentence frames the spine ADRs as "being written out before graduation to `v1.0.0`" rather than asserting they are imminent — this matches ADR-0023's graduation criterion without overcommitting to a timeline.
+- No CMake/code/workflow files were touched (slice is documentation-only per the issue's Notes). One commit on `agent/05-readme-consumer-docs`; the issue file's `Status:` flip and this Comments entry are intentionally uncommitted per the runner protocol.
+
+— from afk worker, 2026-05-19
