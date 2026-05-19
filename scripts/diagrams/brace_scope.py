@@ -225,6 +225,20 @@ def _scan(s: str, start: int, end: int, prefix: str,
             while i < end and s[i] != '\n':
                 i += 1
             continue
+        # `neutralize` blanks comment *contents* but preserves the `//` and
+        # `/* */` delimiters. Skip past them so a file that opens with a
+        # license header doesn't get treated as one giant function signature.
+        if c == '/' and i + 1 < end and s[i + 1] == '/':
+            while i < end and s[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < end and s[i + 1] == '*':
+            i += 2
+            while i + 1 < end and not (s[i] == '*' and s[i + 1] == '/'):
+                i += 1
+            if i + 1 < end:
+                i += 2
+            continue
 
         m = _FORWARD_DECL_RE.match(s, i, end)
         if m:

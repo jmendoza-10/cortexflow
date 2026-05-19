@@ -189,6 +189,36 @@ def test_control_flow_keywords_are_not_treated_as_functions():
     assert set(fns.keys()) == {'ns::f'}
 
 
+def test_file_starting_with_line_comment_header():
+    # The SPDX rollout (0c14a8e) prepended a two-line `//` header to every
+    # C++ source. `neutralize` blanks the comment contents but preserves the
+    # `//` delimiters, so the scanner must skip past them rather than treat
+    # the header as part of a function signature.
+    src = """// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
+#include <thing.hpp>
+
+namespace ns {
+void f() { x; }
+}
+"""
+    fns = functions(src)
+    assert 'ns::f' in fns
+
+
+def test_file_starting_with_block_comment_header():
+    src = """/* Copyright 2026 The CortexFlow Authors
+   SPDX-License-Identifier: Apache-2.0 */
+#include <thing.hpp>
+
+namespace ns {
+void f() { x; }
+}
+"""
+    fns = functions(src)
+    assert 'ns::f' in fns
+
+
 def test_neutralize_preserves_length():
     src = "// hello {\n\"world{}\"\n/* a { b } c */\n"
     out = neutralize(src)
