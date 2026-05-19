@@ -1,0 +1,103 @@
+name: Release
+
+# Triggered on a pushed annotated tag (`vX.Y.Z` for stable releases,
+# `vX.Y.Z-suffix` for pre-releases like `v0.1.0-rc1`). Runs the same
+# build/test matrix as `.github/workflows/ci.yml` against the tagged
+# commit, then publishes a GitHub Release whose notes are extracted
+# from `CHANGELOG.md`. See `docs/releasing.md` for the manual steps a
+# maintainer runs before pushing the tag.
+#
+# NOTE: The `build-and-test` job below is duplicated from
+# `.github/workflows/ci.yml`. If you change one matrix, change the
+# other to match. Both files reference each other in their headers as
+# a guard against drift.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+        target: [host, posix]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (${{ matrix.target }})
+        run: >
+          cmake -B build
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DCORTEXFLOW_BUILD_TESTS=ON
+          -DCORTEXFLOW_TRACE_LEVEL=FULL
+          -DCORTEXFLOW_TARGET=${{ matrix.target }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  publish-release:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # Match `## [VERSION]` at the start of a line. The trailing
+          # date (`- YYYY-MM-DD`) is optional. The section ends at
+          # the next `## [` heading or at the first link-reference
+          # definition (`[name]: url`) — whichever comes first.
+          awk -v marker="## [${version}]" '
+            index($0, marker) == 1            { in_section = 1; next }
+            in_section && /^## \[/            { exit }
+            in_section && /^\[[^]]+\]: /      { exit }
+            in_section                        { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ -z "$(tr -d '[:space:]' < release-notes.md)" ]; then
+            echo "::error::CHANGELOG.md has no [${version}] section (or the section is empty). Add a [${version}] section with release notes and cut a new tag — never re-point an existing tag."
+            exit 1
+          fi
+          echo "Resolved release notes for ${TAG}:"
+          echo "----"
+          cat release-notes.md
+          echo "----"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${TAG}" == *-* ]]; then
+            prerelease_flag=(--prerelease)
+          else
+            prerelease_flag=()
+          fi
+          gh release create "${TAG}" \
+            --title "${TAG}" \
+            --notes-file release-notes.md \
+            "${prerelease_flag[@]}"

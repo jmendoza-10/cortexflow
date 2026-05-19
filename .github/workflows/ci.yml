@@ -1,5 +1,9 @@
 name: CI
 
+# NOTE: The `build-and-test` job below is duplicated by
+# `.github/workflows/release.yml` so the same matrix runs against a
+# tagged commit. If you change one matrix, change the other to match.
+
 on:
   push:
     branches: [main]
