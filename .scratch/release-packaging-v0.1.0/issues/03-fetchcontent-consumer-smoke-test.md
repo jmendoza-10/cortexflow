@@ -1,6 +1,6 @@
 # FetchContent consumer smoke test: prove the v0.1.0 consumption contract end-to-end
 
-Status: ready-for-agent
+Status: merged
 PRD: `.scratch/release-packaging-v0.1.0/PRD.md` — user stories 1, 3, 4, 5, 9, 20, 21, 22
 ADRs: `docs/adr/0022-private-compile-flags-for-rtti-and-exceptions.md`, `docs/adr/0023-release-packaging-strategy.md`
 
@@ -53,3 +53,28 @@ Slice 2 (`02-cmake-hygiene-for-subproject-consumption.md`). The smoke test can b
 - Do **not** test the framework's runtime behavior here. The smoke test verifies the *consumption contract*; runtime semantics are exhaustively covered by the existing `tests/integration/` suite.
 - If a future slice adds install rules (deferred per ADR-0023), a sibling smoke test exercising `find_package(cortexflow CONFIG)` would mirror this one. Not in scope for v0.1.0.
 - If `FetchContent_Declare(... SOURCE_DIR ...)` proves awkward for the parent-build-runs-child-build pattern, an acceptable alternative is for the CTest case to set up a `SOURCE_DIR` pointing at `${PROJECT_SOURCE_DIR}` (the CortexFlow root, computed at parent configure time) and pass it to the child configure via `-D`. Either approach satisfies the contract; pick whichever is cleaner.
+
+## Comments
+
+**Built (2026-05-19, from afk worker):**
+
+- New `tests/integration/fetchcontent_consumer/` standalone CMake project
+  - `CMakeLists.txt` — `project(fetchcontent_consumer LANGUAGES CXX)`, `FetchContent_Declare(cortexflow SOURCE_DIR ...)` resolved relative to the smoke test's own location (`../../..`), `set(CORTEXFLOW_TARGET posix CACHE STRING "" FORCE)` *before* `FetchContent_MakeAvailable`, configure-time assertions for `cortexflow_VERSION STREQUAL "0.1.0"` and `NOT TARGET minimal_app`
+  - `consumer_main.cpp` — the bare `int main() { return 0; }` linked against `cortexflow`
+  - `exceptions_consumer.cpp` — uncalled (`[[maybe_unused]]`) functions that use `throw` and `dynamic_cast` so the compiler still parses + codegens them. I went with this over the `#if 0` route mentioned in the issue: `#if 0` strips the code at the preprocessor stage, so the compiler never sees the `throw` and the test wouldn't actually verify the flags. Uncalled functions exercise the flags directly while still never running.
+- Parent `tests/CMakeLists.txt` gets a new `fetchcontent_consumer` ctest case (sh -c chained) that does `cmake -E rm -rf` → configure → `cmake --build` against the smoke-test source dir into `${CMAKE_BINARY_DIR}/fetchcontent_consumer_build/`. Forwards the parent's `CMAKE_GENERATOR`, `CMAKE_C_COMPILER`, `CMAKE_CXX_COMPILER`, and `CORTEXFLOW_ENABLE_TSAN` so CI matrix coverage (gcc/clang × host/posix × ±TSan) flows through.
+- The smoke test's `CMakeLists.txt` also applies `-fsanitize=thread` (and the matching link option) to its own two targets when `CORTEXFLOW_ENABLE_TSAN=ON`. `add_compile_options(-fsanitize=thread)` in cortexflow's CMakeLists.txt is directory-scoped and doesn't propagate to consumer targets, so without this the TSan-flagged libcortexflow.a would link against non-instrumented consumer binaries.
+
+**Regression verification (toggled, observed failure, restored, re-ran):**
+
+- Flipped `target_compile_options(cortexflow PRIVATE -fno-rtti -fno-exceptions)` → `PUBLIC` in the root `CMakeLists.txt`. Smoke test fails compiling `exceptions_consumer.cpp` with `cannot use 'throw' with exceptions disabled` and `use of dynamic_cast requires -frtti`. Restored.
+- Flipped `${PROJECT_SOURCE_DIR}` → `${CMAKE_SOURCE_DIR}` in `cmake/targets/posix.cmake`. Smoke test fails at configure with `target_sources: Cannot find source file: …/heap_allocator.cpp` (because `CMAKE_SOURCE_DIR` resolves to the smoke test's own root, not CortexFlow's). Restored.
+
+**Reviewer notes:**
+
+- Wall-clock locally: ~1.5s on Apple Silicon; full ctest suite is 22 cases / ~5.5s total, vs ~4s before this slice. Well inside the 30s budget.
+- The fetchcontent_consumer build dir lives under `${CMAKE_BINARY_DIR}/fetchcontent_consumer_build/` so it is cleaned up with the parent build dir; the test wipes it at the start of every run so a previous run's cached configure can't mask a regression.
+- ctest's `add_test(... COMMAND ...)` only accepts one COMMAND, hence the `sh -c "...; ... && ...; ..."` chain. This matches the pattern already used by the `trace_elision` and `no_target_ifdefs` cases in `tests/CMakeLists.txt`, so it's consistent with the file's existing style.
+- I did not touch the host backend's `target_sources` path (`cmake/targets/host.cmake`) — the smoke test forces `CORTEXFLOW_TARGET=posix`, which is the consumer story we ship in v0.1.0 per ADR-0023. A `${PROJECT_SOURCE_DIR}` regression in `host.cmake` would not surface through this test. Could be worth a second posix-flavored consumer test for the host backend later, but Slice 2 fixed both files at once and a regression in either is unlikely without the other; not in scope here.
+
+— from afk worker, 2026-05-19
