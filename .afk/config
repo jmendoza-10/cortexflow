@@ -1,3 +1,3 @@
-issues_dir = .scratch/generated-flow-diagrams/issues
+issues_dir = .scratch/release-packaging-v0.1.0/issues
 cap = 1
 
