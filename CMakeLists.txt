@@ -70,6 +70,18 @@ add_library(cortexflow STATIC
     src/cortexflow/trace.cpp
     src/cortexflow/clock.cpp
 )
+# Namespaced ALIAS: `cortexflow::cortexflow` is the canonical consumer-facing
+# target name (see CONTEXT.md → *Build surface* and ADR-0023). Typos in the
+# namespaced form fail at configure time instead of silently falling through
+# to a `-l<name>` link directive. The un-namespaced `cortexflow` target
+# remains valid; the ALIAS is additive.
+add_library(cortexflow::cortexflow ALIAS cortexflow)
+# C++17 is part of the header-level contract — declared PUBLIC on the target
+# so it propagates to sub-project consumers regardless of the consumer's
+# default `CMAKE_CXX_STANDARD` (which is directory-scoped and would not
+# otherwise reach our headers when CortexFlow is consumed via
+# `add_subdirectory` / `FetchContent_MakeAvailable`).
+target_compile_features(cortexflow PUBLIC cxx_std_17)
 target_include_directories(cortexflow PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )

@@ -22,7 +22,7 @@ CortexFlow ships as a **source release on the GitHub repository**, consumed via 
   ```cmake
   set(CORTEXFLOW_TARGET posix CACHE STRING "" FORCE)
   FetchContent_MakeAvailable(cortexflow)
-  target_link_libraries(my_app PRIVATE cortexflow)
+  target_link_libraries(my_app PRIVATE cortexflow::cortexflow)
   ```
 
 - **Fallback:** vendoring (drop the source tree into `third_party/cortexflow/`, then `add_subdirectory(third_party/cortexflow)`). Same configure-time backend selection. Identical contract to FetchContent.
@@ -54,7 +54,7 @@ The stable surface is the **Release surface** defined in CONTEXT.md, with three 
 
 - **Core API surface** — `include/cortexflow/*.hpp`. Source-level changes here are breaking.
 - **Platform surface** — `platform/<target>/cortexflow/platform.hpp` for each shipped target. Per-target. Adding a new backend is non-breaking; removing an existing backend is breaking for consumers using that backend.
-- **Build surface** — the `cortexflow` CMake target name, the include directories it propagates, the compile features it requires, the link dependencies it pulls in. The cache variable `CORTEXFLOW_TARGET` (and its accepted values) is part of the build surface; internals like `CORTEXFLOW_TRACE_LEVEL_VALUE` are not.
+- **Build surface** — the `cortexflow::cortexflow` CMake target (an ALIAS for `cortexflow`); both names link the same library, but the namespaced form is the canonical consumer interface. Also the include directories it propagates, the compile features it requires, and the link dependencies it pulls in. The cache variable `CORTEXFLOW_TARGET` (and its accepted values) is part of the build surface; internals like `CORTEXFLOW_TRACE_LEVEL_VALUE` are not.
 
 Everything else (`src/cortexflow/` internals, other files under `platform/<target>/`, `examples/`, `tests/`, `scripts/`, `.scratch/`, directory layout, cache variable names other than `CORTEXFLOW_TARGET`) is **not** on the release surface and may change between any two tagged releases without a version bump implication.
 
@@ -66,7 +66,7 @@ When CortexFlow is consumed as a sub-project (FetchContent or vendoring), it mus
 - `tests/` remains opt-in via `CORTEXFLOW_BUILD_TESTS=ON` (unchanged from before this ADR).
 - Per-target CMake files (`cmake/targets/*.cmake`) use `${PROJECT_SOURCE_DIR}` and not `${CMAKE_SOURCE_DIR}`, so paths resolve to CortexFlow's tree rather than the parent project's.
 
-`-fno-rtti` and `-fno-exceptions` are PRIVATE compile options on the `cortexflow` target — see [ADR-0022](0022-private-compile-flags-for-rtti-and-exceptions.md).
+`-fno-rtti` and `-fno-exceptions` are PRIVATE compile options on the `cortexflow::cortexflow` target — see [ADR-0022](0022-private-compile-flags-for-rtti-and-exceptions.md).
 
 ### Cut-a-release mechanics
 

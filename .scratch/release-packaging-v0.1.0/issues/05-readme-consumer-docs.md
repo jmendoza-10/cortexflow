@@ -64,7 +64,7 @@ Required contents:
 
 ## Blocked by
 
-Slices 1 ([License + SPDX](01-license-and-spdx-rollout.md)) and 2 ([CMake hygiene](02-cmake-hygiene-for-subproject-consumption.md)) must be merged first — the README change documents a contract that those slices implement. Writing the README before they ship would document behavior that does not yet exist.
+Slices 1 ([License + SPDX](01-license-and-spdx-rollout.md)), 2 ([CMake hygiene](02-cmake-hygiene-for-subproject-consumption.md)), and 7 ([Build surface: target ALIAS + features](07-build-surface-cmake-target-alias-and-features.md)) must be merged first — the README change documents a contract that those slices implement. Writing the README before they ship would document behavior that does not yet exist. Slice 7 in particular establishes `cortexflow::cortexflow` as the canonical consumer-facing target name that the README's FetchContent stanza is expected to use.
 
 Slice 3 (smoke test) is a nice-to-have-first for confidence but not a hard prerequisite for the README copy.
 
