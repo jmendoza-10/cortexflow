@@ -4,11 +4,11 @@
 # file fulfils.
 
 target_sources(cortexflow PRIVATE
-    ${CMAKE_SOURCE_DIR}/platform/host/heap_allocator.cpp
-    ${CMAKE_SOURCE_DIR}/platform/host/steady_clock.cpp
-    ${CMAKE_SOURCE_DIR}/platform/host/trace_sink.cpp
+    ${PROJECT_SOURCE_DIR}/platform/host/heap_allocator.cpp
+    ${PROJECT_SOURCE_DIR}/platform/host/steady_clock.cpp
+    ${PROJECT_SOURCE_DIR}/platform/host/trace_sink.cpp
 )
 
 target_include_directories(cortexflow PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/platform/host>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/platform/host>
 )

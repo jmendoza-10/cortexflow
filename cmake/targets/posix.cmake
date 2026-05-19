@@ -5,13 +5,13 @@
 find_package(Threads REQUIRED)
 
 target_sources(cortexflow PRIVATE
-    ${CMAKE_SOURCE_DIR}/platform/posix/heap_allocator.cpp
-    ${CMAKE_SOURCE_DIR}/platform/posix/steady_clock.cpp
-    ${CMAKE_SOURCE_DIR}/platform/posix/trace_sink.cpp
+    ${PROJECT_SOURCE_DIR}/platform/posix/heap_allocator.cpp
+    ${PROJECT_SOURCE_DIR}/platform/posix/steady_clock.cpp
+    ${PROJECT_SOURCE_DIR}/platform/posix/trace_sink.cpp
 )
 
 target_include_directories(cortexflow PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/platform/posix>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/platform/posix>
 )
 
 target_link_libraries(cortexflow PUBLIC Threads::Threads)
