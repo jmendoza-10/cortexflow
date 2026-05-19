@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 #include <cortexflow/clock.hpp>
 
 #include <cortexflow/assert.hpp>

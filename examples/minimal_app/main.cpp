@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // Minimal cortexflow example — the canonical three-line lifecycle (PRD US 3).
 //
 // Under the default SteadyClock the Consumer's Processing-state timer never

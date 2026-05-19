@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // Host backend: `HeapAllocator` implementation + `default_allocator()`
 // selector. Uses the C++ global `::operator new` / `::operator delete` with
 // alignment, guarded by `std::mutex` (architecture §6.5).

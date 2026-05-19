@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // Compiled with CORTEXFLOW_TRACE_LEVEL_VALUE=0 (Off) and -O2.
 // All CORTEXFLOW_TRACE_* calls should compile to nothing — the optimizer
 // eliminates the dead if-constexpr branches, leaving no references to

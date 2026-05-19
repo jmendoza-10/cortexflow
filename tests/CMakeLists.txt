@@ -134,6 +134,12 @@ fi; \
 exit 0"
 )
 
+# SPDX-header guard: every .hpp/.cpp under the scoped tree must carry the
+# two-line SPDX header. See ADR-0023 → License.
+add_test(NAME spdx_headers
+    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/check_spdx_headers.sh ${PROJECT_SOURCE_DIR}
+)
+
 # Compile-fail tests: each file must be rejected by the compiler. The
 # composition-validator tests additionally verify that the diagnostic contains
 # the static_assert message — that wording is the front-door error users see,

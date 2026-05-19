@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // Platform typedef-swap integration test (issue 16 acceptance criteria).
 //
 // The same composition compiles unchanged for any `CORTEXFLOW_TARGET` because

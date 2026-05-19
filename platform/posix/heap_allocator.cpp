@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // POSIX backend: `HeapAllocator` implementation using `posix_memalign` for
 // allocation and `pthread_mutex_t` for the cross-thread lock that protects
 // foreign-thread `make_message_with(...)` calls (architecture §6.5, queue

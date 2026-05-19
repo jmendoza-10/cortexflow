@@ -1,3 +1,5 @@
+// Copyright 2026 The CortexFlow Authors
+// SPDX-License-Identifier: Apache-2.0
 // This file must NOT compile successfully.
 // Verifies the call-site static_assert that catches `send<Target>(msg)` where
 // `Target` is in the ModuleList but does not declare a handler for `Msg`
