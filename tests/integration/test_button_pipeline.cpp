@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // End-to-end scenarios against the button_pipeline example
 // (examples/button_pipeline/). This file grows scenario-by-scenario across
-// the slice chain in .scratch/button-pipeline-example/issues/. Slice 03
-// completes the single-click path: scenario 3 walks a clean press →
-// release through Debouncer → ClickClassifier → UiController and observes
-// `UiMode::Active`; scenario 6 pins the RAII subscription/timer
-// invariants across a full click cycle.
+// the slice chain in .scratch/button-pipeline-example/issues/. After
+// slice 05 every gesture in the PRD's state machine is exercised:
+// scenario 3 walks a clean press → release through Debouncer →
+// ClickClassifier → UiController and observes `UiMode::Active`;
+// scenario 4 walks a press-release-press-release sequence inside
+// `kDoubleClickWindow` and pins that `UiMode` stays at the baseline
+// (the system took the DoubleClick branch, which is a no-op in
+// UiController); scenario 5 covers long-press; scenario 6 pins the RAII
+// subscription/timer invariants across a full click cycle.
 //
 // Every scenario drives the App via the public surface only (post +
 // run_one + ManualClock::advance). No internal pokes; no real time; no
@@ -30,17 +34,17 @@ using namespace std::chrono_literals;
 
 // ---------------------------------------------------------------------------
 // Compile-time composition shape — pins the current shape so silent
-// composition drift fails at compile time. Slice 05 will extend the
-// ClickClassifier with a `SecondPressed` state for the double-click
-// branch; the module / key counts stay as they are.
+// composition drift fails at compile time. After slice 05 the
+// ClickClassifier carries its four-state shape end-to-end (Idle, Pressed,
+// AwaitingSecondClick, SecondPressed); module / key counts are unchanged.
 // ---------------------------------------------------------------------------
 
 static_assert(button_pipeline::Runtime::kNumModules == 4,
-              "button_pipeline slice 04: "
+              "button_pipeline slice 05: "
               "ModuleList<ButtonReader, Debouncer, ClickClassifier, "
               "UiController>");
 static_assert(button_pipeline::Keys::size == 2,
-              "button_pipeline slice 04: two cache keys "
+              "button_pipeline slice 05: two cache keys "
               "(Owned<DebouncedButtonState, Debouncer>, "
               "Owned<UiMode_Key, UiController>)");
 static_assert(button_pipeline::Runtime::kMaxSubscriptions == 8,
@@ -289,7 +293,127 @@ TEST_CASE("button_pipeline: single click drives UiMode to Active") {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5 — Long press drives `UiMode` to `Configuring`; the eventual
+// Test 5 — Double click leaves `UiMode` at the baseline (PRD scenario 4).
+//
+// Drives a press-release-press-release sequence where the second press
+// arrives within `kDoubleClickWindow` of the first release. The branch
+// under test:
+//   - First press → Classifier `Idle → Pressed`.
+//   - First release → `Pressed → AwaitingSecondClick` (double-click Timer
+//     armed for `kDoubleClickWindow`).
+//   - Second press arrives inside the window → `AwaitingSecondClick →
+//     SecondPressed`; the Locals dtor cancels the double-click Timer in
+//     the same step. No gesture has been emitted yet.
+//   - Second release → `SecondPressed → Idle`; the module-level handler
+//     sees `KeyChanged<>{false}` arrive in `SecondPressed` and posts
+//     `UiController::DoubleClick{}` before the transition is applied.
+//   - `UiController` in `Idle` treats `DoubleClick` as a no-op (stay),
+//     so `UiMode` remains `Idle`.
+//
+// The contrast with test 4 is the assertion: the *same* outer cadence
+// with a single press-release would have driven `UiMode` to `Active` (as
+// test 4 proves). With two press-releases inside the window, `UiMode`
+// stays at the baseline `Idle` — which is the proof that the Classifier
+// took the two-click branch and not the single-click branch.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("button_pipeline: double click leaves UiMode at the baseline Idle") {
+    cortexflow::ManualClock clk;
+    button_pipeline::App app{clk};
+    app.start();
+
+    // Baseline: UiController in Idle, UiMode_Key == Idle.
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+
+    // First press: Classifier Idle → Pressed; Debouncer Settled →
+    // CoolingDown; both Timers armed.
+    post_raw_transition(app, true);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(false) == true);
+    CHECK(app.timers_ref().armed_count() == 2);  // debounce + long-press
+
+    // Drain the debounce window.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);  // long-press only
+
+    // First release: Debouncer commits false and re-arms debounce;
+    // Classifier Pressed → AwaitingSecondClick — long-press Timer
+    // cancelled by the Locals dtor, double-click Timer armed for
+    // kDoubleClickWindow.
+    post_raw_transition(app, false);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(true) == false);
+    CHECK(app.timers_ref().armed_count() == 2);  // debounce + double-click
+
+    // Drain the debounce window. The double-click Timer is still armed —
+    // its window has not elapsed yet, and we are about to land a second
+    // press inside it.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);  // double-click only
+
+    // Second press inside the double-click window: Debouncer commits true
+    // and arms debounce; Classifier AwaitingSecondClick → SecondPressed —
+    // the Locals dtor cancels the double-click Timer in the same step. No
+    // gesture has been emitted yet, so UiMode is still Idle.
+    post_raw_transition(app, true);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(false) == true);
+    CHECK(app.timers_ref().armed_count() == 1);  // debounce only
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+
+    // Drain debounce.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 0);
+
+    // Second release: Classifier SecondPressed → Idle; the module-level
+    // handler posts `UiController::DoubleClick{}` on the way through.
+    // UiController is in Idle, treats DoubleClick as a no-op, stays in
+    // Idle — so UiMode remains Idle.
+    post_raw_transition(app, false);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(true) == false);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+    CHECK(app.timers_ref().armed_count() == 1);  // debounce only
+
+    // Advance past the debounce window and well past `kDoubleClickWindow`
+    // (which is > kDebounceWindow) to make sure no spurious Timer fires
+    // and no late gesture leaks through. After all the dust settles,
+    // `UiMode` must still be `Idle` — the contrast assertion against
+    // test 4, where the same outer cadence ended at `Active`.
+    clk.advance(button_pipeline::kDoubleClickWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+    CHECK(app.queue_size() == 0);
+
+    app.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Test 6 — Long press drives `UiMode` to `Configuring`; the eventual
 // release is a no-op (PRD scenario 5 / issue 04 scenario 5).
 //
 // Post a press, drain the debounce window, then advance past
@@ -370,7 +494,7 @@ TEST_CASE("button_pipeline: long press drives UiMode to Configuring; release is 
 }
 
 // ---------------------------------------------------------------------------
-// Test 6 — A second long press from `Configuring` returns `UiMode` to
+// Test 7 — A second long press from `Configuring` returns `UiMode` to
 // `Idle` (issue 04 sub-case).
 //
 // Sequences a full long-press → release → press → long-press cycle:
@@ -437,11 +561,11 @@ TEST_CASE("button_pipeline: long press from Configuring returns UiMode to Idle")
 }
 
 // ---------------------------------------------------------------------------
-// Test 7 — RAII pool counts return to baseline across a full gesture
+// Test 8 — RAII pool counts return to baseline across a full gesture
 // (PRD scenario 6).
 //
-// Mirrors `minimal_app`'s test 4: walks the same single-click sequence as
-// test 4 and asserts that the subscription pool count and the
+// Walks the same single-click sequence as test 4 and asserts that the
+// subscription pool count and the
 // armed-Timer count settle back to values consistent with a single
 // Classifier subscription and zero armed Timers once Classifier is back
 // in Idle. Any silent leak in a state's Locals dtor (e.g. a Timer not
@@ -458,7 +582,9 @@ TEST_CASE("button_pipeline: RAII pool counts return to baseline after click") {
     CHECK(app.cache_ref().subscriber_count() == 1);
     CHECK(app.timers_ref().armed_count() == 0);
 
-    // Run the full single-click gesture.
+    // Phase 1: full single-click gesture. Exercises Idle → Pressed →
+    // AwaitingSecondClick → Idle and the long-press + double-click Timer
+    // lifecycles.
     post_raw_transition(app, true);
     app.run_one();
     clk.advance(button_pipeline::kDebounceWindow);
@@ -470,10 +596,42 @@ TEST_CASE("button_pipeline: RAII pool counts return to baseline after click") {
     clk.advance(button_pipeline::kDoubleClickWindow);
     app.run_one();
 
-    // After the gesture: Classifier is back in Idle (single Subscription
-    // alive), UiController is in Active (no Subscription, no Timer), no
-    // Timer is armed anywhere. Cache reads confirm both keys are in the
-    // expected steady state.
+    // After the single click: subscription count back to 1, no Timer armed,
+    // UiController in Active.
+    CHECK(app.cache_ref().subscriber_count() == 1);
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Active);
+
+    // Phase 2: full double-click gesture from `Active`. Exercises the new
+    // `SecondPressed` state's Locals dtor (Subscription must be released
+    // cleanly even though the state holds no Timer) and the
+    // AwaitingSecondClick → SecondPressed Timer-cancellation path. The
+    // outer cadence mirrors test 5; the assertion here is only that the
+    // pool counts return to baseline regardless of which branch the
+    // Classifier took.
+    post_raw_transition(app, true);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    post_raw_transition(app, false);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    post_raw_transition(app, true);   // second press inside double-click window
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    post_raw_transition(app, false);  // second release: emit DoubleClick
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+
+    // After the double click: subscription count still 1, no Timer armed,
+    // UiController unchanged at `Active` (DoubleClick is a no-op in
+    // every UiController state).
     CHECK(app.cache_ref().subscriber_count() == 1);
     CHECK(app.timers_ref().armed_count() == 0);
     CHECK(app.cache_ref()

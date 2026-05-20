@@ -15,10 +15,11 @@
 namespace button_pipeline {
 
 // ClickClassifier — observes `DebouncedButtonState` and emits a gesture
-// message to UiController. Slice 03 implements only the single-click
-// branch: a clean press + release followed by the double-click window
-// elapsing yields a `Click`. Long-press and double-click branches arrive
-// in slice 04.
+// message to UiController. After slice 05 the full state machine is in
+// place: a clean press + release followed by the double-click window
+// elapsing yields a `Click`; a press held past `kLongPressThreshold` yields
+// `LongPress`; a press-release-press-release within `kDoubleClickWindow`
+// yields `DoubleClick`.
 //
 // Every state's Locals holds a `Subscription` to `DebouncedButtonState` so
 // the cache's `KeyChanged<>` fan-out reaches the active state regardless of
@@ -26,7 +27,7 @@ namespace button_pipeline {
 // transition — destructing the outgoing Locals releases the slot
 // synchronously and the incoming Locals constructor takes a fresh one.
 // `subscriber_count()` therefore stays at exactly 1 across the lifetime of
-// the flow (slice 03's scenario 6 pins this invariant).
+// the flow (scenario 6 pins this invariant).
 //
 // Module-level `handle` overrides the framework dispatch table and forwards
 // to `flow.step` (same pattern as Debouncer / Consumer). The two
@@ -77,8 +78,10 @@ public:
     // double-click window. Locals re-arm the subscription and arm a
     // `DoubleClickExpired` timer for `kDoubleClickWindow`. On timer fire,
     // the module-level `handle` sends `UiController::Click{}` and the
-    // state returns `transition_to<Idle>()` so the flow drops back to
-    // waiting for a new leading edge.
+    // state returns `transition_to<Idle>()`. On a second leading edge
+    // (`KeyChanged<>` whose `new_value` is true) arriving within the
+    // window, transition to `SecondPressed` — the Locals dtor cancels the
+    // double-click timer in the same step.
     struct AwaitingSecondClick {
         struct Locals {
             cortexflow::Subscription sub;
@@ -89,11 +92,27 @@ public:
             cortexflow::FlowCtx& ctx, cortexflow::Envelope& env);
     };
 
+    // SecondPressed — second press is held during the double-click window.
+    // Locals re-arm only the subscription (no timer: a held second press
+    // is bounded by the user releasing it, not by a deadline). On
+    // `KeyChanged<>` whose `new_value` is false (the second release),
+    // send `UiController::DoubleClick{}` and transition to `Idle`. There
+    // is no long-press timer in this branch: the PRD treats a
+    // press-release-press-hold as a double-click, not as a long-press.
+    struct SecondPressed {
+        struct Locals {
+            cortexflow::Subscription sub;
+            Locals();
+        };
+        static cortexflow::StateDirective handle(
+            cortexflow::FlowCtx& ctx, cortexflow::Envelope& env);
+    };
+
     using Inbox = std::tuple<>;
 
     cortexflow::Flow<ClickClassifier,
-                     cortexflow::StateList<Idle, Pressed,
-                                           AwaitingSecondClick>> flow;
+                     cortexflow::StateList<Idle, Pressed, AwaitingSecondClick,
+                                           SecondPressed>> flow;
 
     void on_start() override;
     void handle(cortexflow::Envelope& env) override;
