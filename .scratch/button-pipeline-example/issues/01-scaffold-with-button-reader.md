@@ -1,6 +1,6 @@
 # Scaffold `examples/button_pipeline/` with a ButtonReader-only composition
 
-Status: ready-for-agent
+Status: merged
 
 ## Parent
 

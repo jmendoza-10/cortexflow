@@ -1,3 +1,2 @@
-issues_dir = .scratch/release-packaging-v0.1.0/issues
+issues_dir = .scratch/button-pipeline-example/issues
 cap = 1
-
