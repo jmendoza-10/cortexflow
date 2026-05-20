@@ -1,7 +1,6 @@
 # Add Debouncer with lockout Flow and `DebouncedButtonState` cache key
 
-Status: ready-for-agent
-
+Status: merged
 ## Parent
 
 [PRD: button_pipeline](../PRD.md)
@@ -40,3 +39,51 @@ The integration test grows by two scenarios. Scenario 1 posts a clean press, adv
 ## Blocked by
 
 - [01-scaffold-with-button-reader](01-scaffold-with-button-reader.md)
+
+## Comments
+
+Built (2026-05-20, from afk worker):
+
+- Added `examples/button_pipeline/modules/debouncer.{hpp,cpp}` with the
+  `Settled` / `CoolingDown` state pair and the lockout-pattern comment.
+  Both state structs are *defined* before the `Debouncer` class so the
+  Flow buffer is sized correctly (same forward-declare-then-define
+  layout `minimal_app::Consumer` uses).
+- `Debouncer::RawTransition { bool pressed; }` and
+  `Debouncer::DebounceExpired {}` are public nested types per ADR-0020.
+  `Inbox = std::tuple<>;` and the module-level `handle()` forwards every
+  envelope to `flow.step` — `on_start` calls `flow.start(*this)`.
+- `Settled::handle` reads
+  `cache().get<DebouncedButtonState>().value_or(false)`, compares to the
+  envelope's `RawTransition::pressed`, writes the new value on
+  difference, and returns `transition_to<CoolingDown>()`.
+- `CoolingDown::Locals::Locals()` arms the timer via
+  `timers().arm<Debouncer>(kDebounceWindow,
+  Debouncer::DebounceExpired{})`; its `handle` returns
+  `transition_to<Settled>()` on `DebounceExpired` and `stay()` on every
+  `RawTransition` (which is what makes glitches collapse).
+- `keys.hpp` declares `DebouncedButtonState { using value_type = bool; }`.
+- `app.hpp` extends `Modules` to `ModuleList<ButtonReader, Debouncer>`,
+  `Keys` to `CacheKeyList<Owned<DebouncedButtonState, Debouncer>>`, and
+  declares `inline constexpr std::chrono::milliseconds kDebounceWindow{5};`
+  at namespace scope.
+- `button_pipeline_lib` source list gains `modules/debouncer.cpp`.
+- `tests/integration/test_button_pipeline.cpp` gains the clean-press and
+  glitch-train scenarios; the lifecycle round-trip case now also asserts
+  `DebouncedButtonState` is unset at start. The compile-time shape
+  check moves to `kNumModules == 2` / `Keys::size == 1`.
+
+Reviewer notes:
+
+- The integration test's "exactly one write" criterion (acceptance
+  criterion's Scenario 2) is verified indirectly: the cache holds the
+  first commit through the entire window and `Cache::set` already
+  short-circuits compare-equal writes — but the lockout pattern is the
+  stronger guarantee, because the further three envelopes hit
+  `CoolingDown::handle` which never even reaches `cache().set`. There
+  is no public subscriber-fanout counter to observe directly without
+  adding a subscriber, which `keys.hpp` deliberately doesn't yet have.
+- All 23 tests pass under both `CORTEXFLOW_TARGET=host` and
+  `CORTEXFLOW_TARGET=posix`. `spdx_headers` and `no_target_ifdefs`
+  guards stay green.
+- Did not commit the issue-file edits per the runner protocol.
