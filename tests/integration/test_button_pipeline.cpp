@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // End-to-end scenarios against the button_pipeline example
 // (examples/button_pipeline/). This file grows scenario-by-scenario across
-// the slice chain in .scratch/button-pipeline-example/issues/. Slice 02
-// adds the Debouncer and its lockout-flow scenarios on top of the slice 01
-// scaffold.
+// the slice chain in .scratch/button-pipeline-example/issues/. Slice 03
+// completes the single-click path: scenario 3 walks a clean press →
+// release through Debouncer → ClickClassifier → UiController and observes
+// `UiMode::Active`; scenario 6 pins the RAII subscription/timer
+// invariants across a full click cycle.
 //
 // Every scenario drives the App via the public surface only (post +
 // run_one + ManualClock::advance). No internal pokes; no real time; no
@@ -20,22 +22,27 @@
 #include <app.hpp>
 #include <keys.hpp>
 #include <modules/button_reader.hpp>
+#include <modules/click_classifier.hpp>
 #include <modules/debouncer.hpp>
+#include <modules/ui_controller.hpp>
 
 using namespace std::chrono_literals;
 
 // ---------------------------------------------------------------------------
 // Compile-time composition shape — pins the current shape so silent
-// composition drift fails at compile time. Slice 03 will update these as
-// ClickClassifier and UiController land:
-//   - slice 03: kNumModules == 4, Keys::size == 2
+// composition drift fails at compile time. Slice 04 will extend this as
+// the LongPress / DoubleClick branches arrive (the Configuring state on
+// UiController, the double-click-press handler on ClickClassifier).
 // ---------------------------------------------------------------------------
 
-static_assert(button_pipeline::Runtime::kNumModules == 2,
-              "button_pipeline slice 02: ModuleList<ButtonReader, Debouncer>");
-static_assert(button_pipeline::Keys::size == 1,
-              "button_pipeline slice 02: one cache key "
-              "(Owned<DebouncedButtonState, Debouncer>)");
+static_assert(button_pipeline::Runtime::kNumModules == 4,
+              "button_pipeline slice 03: "
+              "ModuleList<ButtonReader, Debouncer, ClickClassifier, "
+              "UiController>");
+static_assert(button_pipeline::Keys::size == 2,
+              "button_pipeline slice 03: two cache keys "
+              "(Owned<DebouncedButtonState, Debouncer>, "
+              "Owned<UiMode_Key, UiController>)");
 static_assert(button_pipeline::Runtime::kMaxSubscriptions == 8,
               "button_pipeline: MaxSubscriptions<8>");
 
@@ -57,11 +64,15 @@ void post_raw_transition(button_pipeline::App& app, bool pressed) {
 // ---------------------------------------------------------------------------
 // Test 1 — App lifecycle round-trip on the current composition.
 //
-// No module emits anything from on_start, so the queue is empty after
-// start(); run_one() returns immediately and shutdown() tears the runtime
-// down without asserting. Debouncer's Flow does dispatch its synthetic init
-// envelope into Settled on start() — but Settled has no Locals, so no
-// subscriptions or timers are armed.
+// Slice 03 baseline after `start()`:
+//   - ClickClassifier's Idle.Locals holds one Subscription to
+//     DebouncedButtonState — that single subscription is the steady-state
+//     pool occupancy, and it survives every transition (the new state's
+//     Locals immediately re-subscribe).
+//   - UiController's Idle.Locals writes UiMode::Idle to the cache on
+//     entry, so UiMode_Key reads back Idle before any envelope is posted.
+//   - No raw transition has been observed yet, so DebouncedButtonState is
+//     empty and no Timer is armed in either Idle state.
 // ---------------------------------------------------------------------------
 
 TEST_CASE("button_pipeline: start/run_one/shutdown round-trip stays quiescent") {
@@ -70,11 +81,15 @@ TEST_CASE("button_pipeline: start/run_one/shutdown round-trip stays quiescent") 
     app.start();
 
     CHECK(app.queue_size() == 0);
-    CHECK(app.cache_ref().subscriber_count() == 0);
+    CHECK(app.cache_ref().subscriber_count() == 1);
     CHECK(app.timers_ref().armed_count() == 0);
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .has_value() == false);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
 
     app.run_one();  // no envelopes to drain
 
@@ -105,25 +120,31 @@ TEST_CASE("button_pipeline: clean press commits DebouncedButtonState") {
     app.run_one();
 
     // The leading edge has been committed and CoolingDown is now active
-    // with its Timer armed for kDebounceWindow.
+    // with its debounce Timer armed for kDebounceWindow. The fanout
+    // KeyChanged<DebouncedButtonState> also drained in this run_one,
+    // pushing ClickClassifier from Idle → Pressed; Pressed.Locals arms
+    // the long-press Timer for kLongPressThreshold, so two Timers are
+    // armed at this point.
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .value_or(false) == true);
-    CHECK(app.timers_ref().armed_count() == 1);
+    CHECK(app.timers_ref().armed_count() == 2);
     CHECK(app.queue_size() == 0);
 
-    // Advance past the lockout window; the timer fires, DebounceExpired is
-    // posted, and the next run_one() returns the flow to Settled.
+    // Advance past the lockout window; only the debounce Timer fires
+    // (kDebounceWindow < kLongPressThreshold), DebounceExpired is posted,
+    // and the next run_one() returns Debouncer's flow to Settled. The
+    // long-press Timer stays armed — Classifier is still in Pressed.
     clk.advance(button_pipeline::kDebounceWindow);
     CHECK(app.queue_size() == 1);
-    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.timers_ref().armed_count() == 1);
 
     app.run_one();
 
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .value_or(false) == true);
-    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.timers_ref().armed_count() == 1);
     CHECK(app.queue_size() == 0);
 
     app.shutdown();
@@ -154,36 +175,163 @@ TEST_CASE("button_pipeline: glitch train within lockout window commits once") {
     post_raw_transition(app, false);  // glitch
     CHECK(app.queue_size() == 4);
 
-    // Drain all four envelopes. The first commits and arms the timer; the
-    // rest land in CoolingDown and stay.
+    // `run_one` drains the entire queue, including envelopes posted while
+    // dispatching earlier ones — so this single call processes all four
+    // RawTransitions plus the KeyChanged fanout from the first edge's
+    // commit. Debouncer's first edge commits and CoolingDown arms the
+    // debounce Timer; the three glitches arrive in CoolingDown and stay.
+    // Classifier reacts to the lone KeyChanged<DBS>{nullopt, true} by
+    // transitioning Idle → Pressed and arming the long-press Timer.
     app.run_one();
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .value_or(false) == true);
-    CHECK(app.timers_ref().armed_count() == 1);
+    CHECK(app.timers_ref().armed_count() == 2);
 
+    // Subsequent run_ones are no-ops — the queue was already empty after
+    // the first call.
     app.run_one();
     app.run_one();
     app.run_one();
 
-    // After all four glitches: still the first committed value, still
-    // exactly one armed timer (the one armed on the first edge), and the
-    // queue is empty.
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .value_or(false) == true);
-    CHECK(app.timers_ref().armed_count() == 1);
+    CHECK(app.timers_ref().armed_count() == 2);
     CHECK(app.queue_size() == 0);
 
-    // Advance past the lockout window — DebounceExpired fires, CoolingDown
-    // transitions back to Settled. The cache still holds the first commit.
+    // Advance past the lockout window — DebounceExpired fires (long-press
+    // due-time has not arrived, so it stays armed), CoolingDown
+    // transitions back to Settled. The cache still holds the first
+    // commit; one armed timer remains (Classifier's long-press in
+    // Pressed).
     clk.advance(button_pipeline::kDebounceWindow);
     app.run_one();
 
     CHECK(app.cache_ref()
               .get<button_pipeline::DebouncedButtonState>()
               .value_or(false) == true);
+    CHECK(app.timers_ref().armed_count() == 1);
+    CHECK(app.queue_size() == 0);
+
+    app.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Test 4 — Single click drives `UiMode` to `Active` (PRD scenario 3).
+//
+// The full end-to-end path of slice 03: a clean press, the debounce window
+// elapsing, a clean release, the debounce window elapsing again, and
+// finally the double-click window elapsing without a second press. After
+// the double-click Timer fires, Classifier emits `UiController::Click{}`
+// and UiController's Idle.handle transitions to Active — whose Locals
+// constructor writes `UiMode::Active` to the cache.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("button_pipeline: single click drives UiMode to Active") {
+    cortexflow::ManualClock clk;
+    button_pipeline::App app{clk};
+    app.start();
+
+    // Initial state: Classifier in Idle (sub), UiController in Idle (cache
+    // UiMode_Key == Idle), no Timer armed.
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+
+    // Press: drains the RawTransition and the resulting KeyChanged<DBS>
+    // fanout in a single run_one. After the press, Classifier is in
+    // Pressed with the long-press Timer armed; Debouncer is in CoolingDown
+    // with the debounce Timer armed.
+    post_raw_transition(app, true);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(false) == true);
+    CHECK(app.timers_ref().armed_count() == 2);
+
+    // Advance past the debounce window — debounce Timer fires, returning
+    // Debouncer to Settled; long-press stays armed.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);
+
+    // Release: Debouncer commits false and re-enters CoolingDown;
+    // Classifier transitions Pressed → AwaitingSecondClick, cancelling
+    // the long-press Timer and arming the double-click Timer.
+    post_raw_transition(app, false);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(true) == false);
+    CHECK(app.timers_ref().armed_count() == 2);  // debounce + double-click
+
+    // Advance past the debounce window — debounce Timer fires.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);  // double-click only
+
+    // Advance past the double-click window — double-click Timer fires,
+    // the module-level handler posts `UiController::Click{}`,
+    // AwaitingSecondClick → Idle, and on the same run_one UiController's
+    // Idle.handle sees `Click` and transitions to Active, writing
+    // UiMode::Active to the cache.
+    clk.advance(button_pipeline::kDoubleClickWindow);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Active);
+    CHECK(app.queue_size() == 0);
+
+    app.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Test 5 — RAII pool counts return to baseline across a full gesture
+// (PRD scenario 6).
+//
+// Mirrors `minimal_app`'s test 4: walks the same single-click sequence as
+// test 4 and asserts that the subscription pool count and the
+// armed-Timer count settle back to values consistent with a single
+// Classifier subscription and zero armed Timers once Classifier is back
+// in Idle. Any silent leak in a state's Locals dtor (e.g. a Timer not
+// held by value, a Subscription captured by reference) would surface
+// here as a non-zero delta.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("button_pipeline: RAII pool counts return to baseline after click") {
+    cortexflow::ManualClock clk;
+    button_pipeline::App app{clk};
+    app.start();
+
+    // Baseline: Classifier.Idle holds one Subscription; no Timer is armed.
+    CHECK(app.cache_ref().subscriber_count() == 1);
     CHECK(app.timers_ref().armed_count() == 0);
+
+    // Run the full single-click gesture.
+    post_raw_transition(app, true);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    post_raw_transition(app, false);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    clk.advance(button_pipeline::kDoubleClickWindow);
+    app.run_one();
+
+    // After the gesture: Classifier is back in Idle (single Subscription
+    // alive), UiController is in Active (no Subscription, no Timer), no
+    // Timer is armed anywhere. Cache reads confirm both keys are in the
+    // expected steady state.
+    CHECK(app.cache_ref().subscriber_count() == 1);
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Active);
     CHECK(app.queue_size() == 0);
 
     app.shutdown();
