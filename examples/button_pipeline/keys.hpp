@@ -13,6 +13,21 @@ struct DebouncedButtonState {
     using value_type = bool;
 };
 
-// UiMode is added by slice 03 (Owned by UiController).
+// UiMode — published by UiController on every state-entry. `Configuring` is
+// declared now even though it is unused in slice 03; the value lands here so
+// the enum's surface stays stable when slice 04 adds the long-press branch
+// that drives `Active` → `Configuring`.
+enum class UiMode {
+    Idle,
+    Active,
+    Configuring,
+};
+
+// UiMode_Key — cache key whose `value_type` is the `UiMode` enum. Following
+// the same pattern as `DebouncedButtonState`: the key type is the identity,
+// the `value_type` alias is the contract the cache requires.
+struct UiMode_Key {
+    using value_type = UiMode;
+};
 
 }  // namespace button_pipeline

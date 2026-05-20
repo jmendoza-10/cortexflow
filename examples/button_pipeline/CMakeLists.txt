@@ -13,7 +13,9 @@
 add_library(button_pipeline_lib STATIC
     app.cpp
     modules/button_reader.cpp
+    modules/click_classifier.cpp
     modules/debouncer.cpp
+    modules/ui_controller.cpp
 )
 target_link_libraries(button_pipeline_lib PUBLIC cortexflow)
 target_include_directories(button_pipeline_lib PUBLIC

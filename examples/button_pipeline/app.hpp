@@ -13,7 +13,9 @@
 
 #include "keys.hpp"
 #include "modules/button_reader.hpp"
+#include "modules/click_classifier.hpp"
 #include "modules/debouncer.hpp"
+#include "modules/ui_controller.hpp"
 
 namespace button_pipeline {
 
@@ -23,15 +25,18 @@ namespace button_pipeline {
 // (duplicate module, send-to-unknown-target, etc.) are compile-time errors
 // at the Runtime's static_asserts.
 //
-// Slice 02: ButtonReader (boundary) + Debouncer (owner of
-// DebouncedButtonState). Slice 03 adds ClickClassifier and UiController +
-// Owned<UiMode, UiController>.
+// Slice 03: ButtonReader (boundary) + Debouncer (owns
+// DebouncedButtonState) + ClickClassifier (gesture detection) +
+// UiController (owns UiMode_Key). The single-click path is end-to-end;
+// long-press and double-click branches arrive in slice 04.
 // ---------------------------------------------------------------------------
 
-using Modules = cortexflow::ModuleList<ButtonReader, Debouncer>;
+using Modules = cortexflow::ModuleList<ButtonReader, Debouncer,
+                                       ClickClassifier, UiController>;
 
 using Keys = cortexflow::CacheKeyList<
-    cortexflow::Owned<DebouncedButtonState, Debouncer>>;
+    cortexflow::Owned<DebouncedButtonState, Debouncer>,
+    cortexflow::Owned<UiMode_Key, UiController>>;
 
 using AppConfig = cortexflow::Config<cortexflow::MaxSubscriptions<8>>;
 
@@ -43,6 +48,18 @@ using AppCache = cortexflow::Cache<Keys, AppConfig::kMaxSubscriptions>;
 // tests advance ManualClock by exactly this duration to fire the timer that
 // drives CoolingDown → Settled.
 inline constexpr std::chrono::milliseconds kDebounceWindow{5};
+
+// LongPress threshold for ClickClassifier's `Pressed` state. Armed by
+// `Pressed.Locals`; the firing transition is wired in slice 04, but the
+// timer's RAII lifecycle is exercised by every press/release cycle in
+// slice 03 (Pressed.Locals destructor cancels it on release).
+inline constexpr std::chrono::milliseconds kLongPressThreshold{500};
+
+// Double-click window for ClickClassifier's `AwaitingSecondClick` state.
+// On timer fire the module emits `UiController::Click{}` and the state
+// returns to `Idle`. Slice 04 will branch a press during this window into
+// the DoubleClick path.
+inline constexpr std::chrono::milliseconds kDoubleClickWindow{300};
 
 // ---------------------------------------------------------------------------
 // Cross-module access to the running runtime.
