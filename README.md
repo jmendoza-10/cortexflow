@@ -25,6 +25,14 @@ CortexFlow is in **v0.x development** — the library, an example app, and the h
 1. Read [`docs/architecture.md`](docs/architecture.md) — the complete design reference.
 2. Skim [`docs/adr/`](docs/adr/) — short rationale documents for each major decision.
 3. The repo skeleton mirrors section 15 of the architecture doc.
+4. Pick an example to read end-to-end:
+   [`examples/minimal_app/`](examples/minimal_app/) — the smallest
+   composition (two modules, one cache key, one Flow) for seeing the
+   runtime lifecycle in isolation; or
+   [`examples/button_pipeline/`](examples/button_pipeline/) — a
+   four-module hardware-adjacent pipeline (three Flows, two cache
+   keys, a Boundary module driven from a foreign thread) for seeing
+   the framework's primitives composed at realistic scale.
 
 ## Consuming CortexFlow
 
@@ -132,7 +140,7 @@ cmake -S . -B build -DCORTEXFLOW_BUILD_TESTS=ON -DCORTEXFLOW_TRACE_LEVEL=FULL
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 pytest
-python3 scripts/gen-diagrams.py examples/minimal_app/app.hpp && git diff --exit-code docs/diagrams/
+python3 scripts/gen-diagrams.py examples/minimal_app/app.hpp && python3 scripts/gen-diagrams.py examples/button_pipeline/app.hpp && git diff --exit-code docs/diagrams/
 ```
 
 The last line is the drift guard CI enforces — it must report no diff.
@@ -145,6 +153,7 @@ src/cortexflow/       non-template implementations
 platform/<target>/    per-target backends (typedef-swapped at build time)
 cmake/targets/        per-target CMake configurations
 tests/                doctest-based unit and integration tests
-examples/minimal_app/ reference application
+examples/minimal_app/    smallest end-to-end composition
+examples/button_pipeline/ multi-module hardware-adjacent pipeline
 docs/                 architecture and ADRs
 ```

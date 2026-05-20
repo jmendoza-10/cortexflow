@@ -1,10 +1,9 @@
 """End-to-end test for the diagrams pipeline.
 
-Invokes the CLI driver against `examples/minimal_app/app.hpp`, writes into a
-tempdir, and asserts byte-equality between the generated files and the
-files committed under `docs/diagrams/{flows,modules}/`. This is the same
-check the CI guard in slice 03 will perform, so the test reproduces CI's
-verdict locally.
+Invokes the CLI driver against every example app, writes into a tempdir,
+and asserts byte-equality between the generated files and the files
+committed under `docs/diagrams/{flows,modules}/`. This is the same check
+the CI drift guard performs, so the test reproduces CI's verdict locally.
 """
 
 import subprocess
@@ -13,7 +12,10 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-APP_HPP = REPO_ROOT / 'examples' / 'minimal_app' / 'app.hpp'
+APP_HPPS = [
+    REPO_ROOT / 'examples' / 'minimal_app' / 'app.hpp',
+    REPO_ROOT / 'examples' / 'button_pipeline' / 'app.hpp',
+]
 COMMITTED_FLOWS = REPO_ROOT / 'docs' / 'diagrams' / 'flows'
 COMMITTED_MODULES = REPO_ROOT / 'docs' / 'diagrams' / 'modules'
 GEN_DIAGRAMS = REPO_ROOT / 'scripts' / 'gen-diagrams.py'
@@ -21,17 +23,18 @@ GEN_DIAGRAMS = REPO_ROOT / 'scripts' / 'gen-diagrams.py'
 
 def test_cli_matches_committed_diagrams(tmp_path):
     out_dir = tmp_path / 'diagrams'
-    result = subprocess.run(
-        [sys.executable, str(GEN_DIAGRAMS),
-         str(APP_HPP), '--out', str(out_dir)],
-        capture_output=True,
-        text=True,
-        cwd=str(REPO_ROOT),
-    )
-    assert result.returncode == 0, (
-        f'gen-diagrams.py failed: stdout={result.stdout!r} '
-        f'stderr={result.stderr!r}'
-    )
+    for app_hpp in APP_HPPS:
+        result = subprocess.run(
+            [sys.executable, str(GEN_DIAGRAMS),
+             str(app_hpp), '--out', str(out_dir)],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, (
+            f'gen-diagrams.py failed for {app_hpp}: '
+            f'stdout={result.stdout!r} stderr={result.stderr!r}'
+        )
 
     generated_flows = sorted((out_dir / 'flows').glob('*.flow.mmd'))
     committed_flows = sorted(COMMITTED_FLOWS.glob('*.flow.mmd'))
@@ -44,7 +47,8 @@ def test_cli_matches_committed_diagrams(tmp_path):
     for gen_path, com_path in zip(generated_flows, committed_flows):
         assert gen_path.read_bytes() == com_path.read_bytes(), (
             f'{gen_path.name} drifted from {com_path}. '
-            f'Regenerate with `python3 scripts/gen-diagrams.py {APP_HPP}`.'
+            f'Regenerate by running gen-diagrams.py against each app.hpp '
+            f'under examples/.'
         )
 
     generated_modules = sorted((out_dir / 'modules').glob('*.modules.mmd'))
@@ -58,7 +62,8 @@ def test_cli_matches_committed_diagrams(tmp_path):
     for gen_path, com_path in zip(generated_modules, committed_modules):
         assert gen_path.read_bytes() == com_path.read_bytes(), (
             f'{gen_path.name} drifted from {com_path}. '
-            f'Regenerate with `python3 scripts/gen-diagrams.py {APP_HPP}`.'
+            f'Regenerate by running gen-diagrams.py against each app.hpp '
+            f'under examples/.'
         )
 
 

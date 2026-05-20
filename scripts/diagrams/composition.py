@@ -198,13 +198,36 @@ def _split_top_level(body: str) -> List[str]:
 
 def _resolve_header(module_name: str, includes: List[str],
                     base_dir: Path) -> Optional[Path]:
-    """Find the `#include` whose basename matches `module_name.hpp`
-    (case-insensitive) and resolve it relative to `base_dir`.
+    """Find the `#include` whose basename matches the module name and
+    resolve it relative to `base_dir`.
+
+    Two conventions are accepted, in order:
+
+    1. Lowercased class name (e.g. `Producer` → `producer.hpp`). Matches
+       the single-word minimal_app modules.
+    2. PascalCase-to-snake_case (e.g. `ButtonReader` → `button_reader.hpp`).
+       Matches the multi-word button_pipeline modules.
     """
-    target = module_name.lower() + '.hpp'
+    candidates = {module_name.lower() + '.hpp',
+                  _pascal_to_snake(module_name) + '.hpp'}
     for inc in includes:
-        if Path(inc).name.lower() == target:
+        if Path(inc).name.lower() in candidates:
             candidate = (base_dir / inc).resolve()
             if candidate.exists():
                 return candidate
     return None
+
+
+def _pascal_to_snake(name: str) -> str:
+    """`ButtonReader` → `button_reader`. Leaves single-word names unchanged.
+    Inserts an underscore before each uppercase letter past the first, then
+    lowercases. Runs of uppercase (acronyms) collapse to a single segment —
+    sufficient for the example modules; revisit if a real `URLParser`-style
+    name appears.
+    """
+    out = []
+    for i, c in enumerate(name):
+        if c.isupper() and i > 0:
+            out.append('_')
+        out.append(c.lower())
+    return ''.join(out)
