@@ -1,7 +1,6 @@
 # Add the long-press branch end-to-end
 
-Status: ready-for-agent
-
+Status: merged
 ## Parent
 
 [PRD: button_pipeline](../PRD.md)
@@ -40,3 +39,53 @@ The integration test gains scenario 5: post a press, advance time past `kLongPre
 ## Blocked by
 
 - [03-add-classifier-and-uicontroller-click-path](03-add-classifier-and-uicontroller-click-path.md)
+
+## Comments
+
+What I built:
+- `ClickClassifier::handle` now intercepts `LongPressExpired` in the same
+  way it intercepts `DoubleClickExpired`: it posts
+  `UiController::LongPress{}` via `send<>` and then forwards the envelope
+  into `flow.step`. `Pressed::handle` returns `transition_to<Idle>()` on
+  `LongPressExpired`. The release that follows lands in Idle and stays,
+  as previously specified.
+- `UiController` gained the `Configuring` state with `Locals` that writes
+  `UiMode::Configuring` on entry. The Flow is now
+  `Flow<UiController, StateList<Idle, Active, Configuring>>`. Idle/Active
+  transition to Configuring on `LongPress`; Configuring transitions back
+  to Idle on `LongPress` and stays on Click/DoubleClick.
+- Integration tests gained two new scenarios:
+  - "long press drives UiMode to Configuring; release is a no-op" —
+    presses, advances past `kLongPressThreshold`, asserts `Configuring`;
+    then posts release, drains debounce, asserts the mode stays
+    `Configuring`.
+  - "long press from Configuring returns UiMode to Idle" — drives one
+    full long-press cycle to `Configuring`, releases and drains the
+    debounce, presses again, advances past `kLongPressThreshold`, and
+    asserts `UiMode == Idle`.
+- The existing test labelled "Test 5 — RAII pool counts" is now Test 7
+  in source-order; its assertions are unchanged and it still passes.
+
+Anything skipped or deferred:
+- The acceptance-criterion suggesting `flow_type::state_count == 3` was
+  omitted because the framework does not expose `flow_type` or
+  `state_count` on `Flow`/`StateList`. The issue explicitly authorises
+  omission in that case; the runtime composition-shape `static_assert`s
+  (kNumModules == 4, Keys::size == 2, kMaxSubscriptions == 8) already
+  cover module / key counts.
+
+What the reviewer should pay attention to:
+- The module-level `handle` now branches on two timer-fire payloads with
+  an `if / else if`. Each timer payload is still armed by exactly one
+  state, so the conditional emission is safe in the same way it was for
+  `DoubleClickExpired` alone.
+- The post-long-press release scenario is the most subtle part: when
+  Classifier sits in Idle with `DBS == true` after a long-press fires,
+  the eventual `RawTransition{false}` flows through Debouncer →
+  KeyChanged<DBS>{false} → Classifier.Idle.handle, which already treats
+  `new_value == false` as a no-op. UiMode stays at `Configuring` for the
+  whole release drain.
+- Both targets (`-DCORTEXFLOW_TARGET=host` and `-DCORTEXFLOW_TARGET=posix`)
+  build clean and all 23 ctest cases pass under both.
+
+— 2026-05-20, from afk worker
