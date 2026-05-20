@@ -22,8 +22,8 @@ void UiController::handle(cortexflow::Envelope& env) {
 }
 
 // ---------------------------------------------------------------------------
-// Idle — write UiMode::Idle on entry. Click drives the UI active; the other
-// two gestures are no-ops in this state.
+// Idle — write UiMode::Idle on entry. Click drives the UI active; LongPress
+// drives it into Configuring; DoubleClick is a no-op in this state.
 // ---------------------------------------------------------------------------
 
 UiController::Idle::Locals::Locals() {
@@ -35,15 +35,16 @@ cortexflow::StateDirective UiController::Idle::handle(
     if (env.payload_type_id() == cortexflow::type_id<Click>()) {
         return cortexflow::transition_to<Active>();
     }
-    // DoubleClick / LongPress / synthetic init envelope: stay. The two
-    // unhandled gestures are listed in the Inbox so future slices' senders
-    // type-check; their effect lands when those slices wire the transitions.
+    if (env.payload_type_id() == cortexflow::type_id<LongPress>()) {
+        return cortexflow::transition_to<Configuring>();
+    }
+    // DoubleClick / synthetic init envelope: stay.
     return cortexflow::stay();
 }
 
 // ---------------------------------------------------------------------------
-// Active — write UiMode::Active on entry. Click returns to Idle; the other
-// two gestures stay (slice 04 wires LongPress to Configuring).
+// Active — write UiMode::Active on entry. Click returns to Idle; LongPress
+// drives into Configuring; DoubleClick stays.
 // ---------------------------------------------------------------------------
 
 UiController::Active::Locals::Locals() {
@@ -53,6 +54,27 @@ UiController::Active::Locals::Locals() {
 cortexflow::StateDirective UiController::Active::handle(
     cortexflow::FlowCtx&, cortexflow::Envelope& env) {
     if (env.payload_type_id() == cortexflow::type_id<Click>()) {
+        return cortexflow::transition_to<Idle>();
+    }
+    if (env.payload_type_id() == cortexflow::type_id<LongPress>()) {
+        return cortexflow::transition_to<Configuring>();
+    }
+    return cortexflow::stay();
+}
+
+// ---------------------------------------------------------------------------
+// Configuring — write UiMode::Configuring on entry. A second LongPress
+// returns to Idle; Click / DoubleClick are observable but inert (the design
+// guarantees no-op gestures do not change UiMode while configuring).
+// ---------------------------------------------------------------------------
+
+UiController::Configuring::Locals::Locals() {
+    cache().set<UiMode_Key>(UiMode::Configuring);
+}
+
+cortexflow::StateDirective UiController::Configuring::handle(
+    cortexflow::FlowCtx&, cortexflow::Envelope& env) {
+    if (env.payload_type_id() == cortexflow::type_id<LongPress>()) {
         return cortexflow::transition_to<Idle>();
     }
     return cortexflow::stay();

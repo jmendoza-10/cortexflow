@@ -18,13 +18,8 @@ namespace button_pipeline {
 // pattern).
 //
 // Receiver-owned messages: all three gesture types are declared as `public`
-// nested members here in slice 03 even though only `Click` is sent in this
-// slice. Declaring `DoubleClick` and `LongPress` up-front keeps the message
-// vocabulary stable across the next two slices, which add the *senders* and
-// the *state-handling* code, not the type declarations.
-//
-// Inbox lists all three so the compile-time `Module::send<>` validators
-// accept calls from ClickClassifier in this slice and the next two. Every
+// nested members here. The Inbox lists all three so the compile-time
+// `Module::send<>` validators accept calls from ClickClassifier. Every
 // envelope is routed through `flow.step` from the module-level `handle`
 // override — the same pattern Debouncer and Consumer use, justified the
 // same way (state handlers, not the dispatch table, route by payload type).
@@ -38,17 +33,15 @@ class UiController;
 
 class UiController : public cortexflow::Module<UiController> {
 public:
-    // Receiver-owned gesture messages (ADR-0020). All three declared in
-    // slice 03 so the Inbox vocabulary is stable; only `Click` is sent in
-    // this slice — `DoubleClick` and `LongPress` get their senders in
-    // later slices.
+    // Receiver-owned gesture messages (ADR-0020). `Click` is sent on the
+    // single-click branch (slice 03), `LongPress` on the long-press branch
+    // (slice 04); `DoubleClick` gets its sender in slice 05.
     struct Click {};
     struct DoubleClick {};
     struct LongPress {};
 
     // Idle — UiMode_Key == UiMode::Idle on entry. Transitions: Click →
-    // Active; DoubleClick / LongPress → stay (no-op gesture is observable
-    // but inert, per the PRD's design guarantee).
+    // Active; LongPress → Configuring; DoubleClick → stay.
     struct Idle {
         struct Locals {
             Locals();
@@ -58,8 +51,18 @@ public:
     };
 
     // Active — UiMode_Key == UiMode::Active on entry. Transitions: Click
-    // → Idle; DoubleClick / LongPress → stay.
+    // → Idle; LongPress → Configuring; DoubleClick → stay.
     struct Active {
+        struct Locals {
+            Locals();
+        };
+        static cortexflow::StateDirective handle(
+            cortexflow::FlowCtx& ctx, cortexflow::Envelope& env);
+    };
+
+    // Configuring — UiMode_Key == UiMode::Configuring on entry.
+    // Transitions: LongPress → Idle; Click → stay; DoubleClick → stay.
+    struct Configuring {
         struct Locals {
             Locals();
         };
@@ -70,7 +73,7 @@ public:
     using Inbox = std::tuple<Click, DoubleClick, LongPress>;
 
     cortexflow::Flow<UiController,
-                     cortexflow::StateList<Idle, Active>> flow;
+                     cortexflow::StateList<Idle, Active, Configuring>> flow;
 
     void on_start() override;
     void handle(cortexflow::Envelope& env) override;

@@ -20,19 +20,23 @@ void ClickClassifier::on_start() {
 }
 
 void ClickClassifier::handle(cortexflow::Envelope& env) {
-    // Intercept the double-click-timer fire at the module level so we can
-    // post `UiController::Click{}` through the typed `send<>` machinery
+    // Intercept timer-fire envelopes at the module level so we can post the
+    // resulting gesture to UiController through the typed `send<>` machinery
     // (state handlers are static and have no module reference). The state
-    // handler still runs below and transitions AwaitingSecondClick back to
-    // Idle on the same envelope.
+    // handler still runs below and applies its own transition on the same
+    // envelope.
     //
-    // Safe to gate purely on payload type: `DoubleClickExpired` is only
-    // ever armed by `AwaitingSecondClick.Locals`; transitioning out of
-    // AwaitingSecondClick destructs the Timer, cancelling the seq and
-    // preventing the envelope from being posted.
+    // Safe to gate purely on payload type: each timer payload is only ever
+    // armed by exactly one state's Locals (DoubleClickExpired by
+    // AwaitingSecondClick, LongPressExpired by Pressed); transitioning out
+    // of that state destructs the Timer, cancelling the seq and preventing
+    // the envelope from being posted.
     if (env.payload_type_id() ==
         cortexflow::type_id<DoubleClickExpired>()) {
         send<UiController>(UiController::Click{});
+    } else if (env.payload_type_id() ==
+               cortexflow::type_id<LongPressExpired>()) {
+        send<UiController>(UiController::LongPress{});
     }
     flow.step(env);
 }
@@ -68,11 +72,11 @@ cortexflow::StateDirective ClickClassifier::Idle::handle(
 // AwaitingSecondClick; the Locals dtor cancels the long-press timer
 // because it was held by value.
 //
-// The `LongPressExpired` envelope it would post if the button were held
-// past `kLongPressThreshold` is intentionally unhandled in this slice —
-// the handler arrives in slice 04 when the LongPress branch is wired. The
-// timer is armed here so its RAII lifecycle is exercised by the click
-// scenario (it must be cancelled cleanly on the press/release path).
+// On `LongPressExpired` (button held past `kLongPressThreshold`) the
+// module-level `handle` has already fired `LongPress` to UiController;
+// the state returns to Idle directly, discarding the eventual release —
+// the release that follows lands in Idle, which treats a `new_value ==
+// false` `KeyChanged<>` as a no-op.
 // ---------------------------------------------------------------------------
 
 ClickClassifier::Pressed::Locals::Locals()
@@ -90,9 +94,10 @@ cortexflow::StateDirective ClickClassifier::Pressed::handle(
             return cortexflow::transition_to<AwaitingSecondClick>();
         }
     }
-    // `LongPressExpired` arrives here only if the button is held past
-    // `kLongPressThreshold`; slice 04 wires its transition. For now stay
-    // — the inert-but-observable no-op the PRD calls out.
+    if (env.payload_type_id() ==
+        cortexflow::type_id<LongPressExpired>()) {
+        return cortexflow::transition_to<Idle>();
+    }
     return cortexflow::stay();
 }
 

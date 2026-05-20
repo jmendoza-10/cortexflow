@@ -29,21 +29,20 @@ namespace button_pipeline {
 // the flow (slice 03's scenario 6 pins this invariant).
 //
 // Module-level `handle` overrides the framework dispatch table and forwards
-// to `flow.step` (same pattern as Debouncer / Consumer). The one exception
-// is `DoubleClickExpired`: the module intercepts it to call
-// `send<UiController>(Click{})` before forwarding into the flow, because
-// the state handler is static and cannot reach the `send<>` machinery.
+// to `flow.step` (same pattern as Debouncer / Consumer). The two
+// exceptions are the timer-fire payloads `DoubleClickExpired` and
+// `LongPressExpired`: the module intercepts each one to call the
+// corresponding `send<UiController>(...)` before forwarding into the
+// flow, because state handlers are static and cannot reach the `send<>`
+// machinery.
 class ClickClassifier;
 
 class ClickClassifier : public cortexflow::Module<ClickClassifier> {
 public:
     // Receiver-owned timer-fire payloads (ADR-0020). These are the
     // envelopes the state-locals Timers post back to this module when
-    // their respective deadlines elapse.
-    //
-    // `LongPressExpired` is armed in `Pressed.Locals` but its handler is
-    // wired in slice 04; in this slice the timer is armed purely to
-    // exercise its RAII lifecycle through the press/release sequence.
+    // their respective deadlines elapse. `LongPressExpired` is armed by
+    // `Pressed.Locals`; `DoubleClickExpired` by `AwaitingSecondClick.Locals`.
     struct LongPressExpired {};
     struct DoubleClickExpired {};
 
