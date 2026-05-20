@@ -1,7 +1,6 @@
 # Add ClickClassifier and UiController with the single-click path
 
-Status: ready-for-agent
-
+Status: merged
 ## Parent
 
 [PRD: button_pipeline](../PRD.md)
@@ -53,3 +52,66 @@ The integration test gains scenario 3 (single click → `UiMode::Active`) and sc
 ## Blocked by
 
 - [02-add-debouncer-with-lockout-flow](02-add-debouncer-with-lockout-flow.md)
+
+## Comments
+
+### 2026-05-20 — from afk worker
+
+Built the two new modules and the single-click end-to-end path. Composition
+is now `ModuleList<ButtonReader, Debouncer, ClickClassifier, UiController>`
+with `CacheKeyList<Owned<DebouncedButtonState, Debouncer>, Owned<UiMode_Key,
+UiController>>`. All five integration test cases (39 assertions) pass under
+both `host` and `posix` targets; the full 23-test ctest suite is green on
+both.
+
+Implementation notes worth a reviewer's eye:
+
+- **State structs are nested in their owning class** (`ClickClassifier::Idle`
+  vs `UiController::Idle`) rather than at namespace scope as Debouncer's
+  `Settled`/`CoolingDown` are. The reason is concrete: both modules have an
+  `Idle` state in this slice, and namespace-scope structs would collide. The
+  buffer-sizing guarantee the Debouncer file's comment calls out is
+  preserved — every state's Locals is complete at the point the `flow`
+  member is declared inside the class body.
+
+- **UiController has empty `on(Click&)`/`on(DoubleClick&)`/`on(LongPress&)`
+  stubs alongside the `handle` override.** The framework's `Module<>`
+  eagerly instantiates `dispatch_handler<Derived, Msg>` for every type in
+  `Inbox` (it must — the constexpr dispatch table backs the vtable slot for
+  `Module::handle`, even though our `handle` override never reaches that
+  table). With `Inbox = std::tuple<Click, DoubleClick, LongPress>`, the
+  dispatch handlers resolve `Derived::on(Msg&)` and fail to compile if
+  those methods don't exist. Debouncer and Consumer get away without stubs
+  only because their Inbox is empty. There's a header comment on the stubs
+  explaining this. If the framework grows a way to opt out of dispatch
+  (e.g. an Inbox-but-no-table marker), the stubs could go away — flagged
+  for the framework owner to consider, but it's out of scope here.
+
+- **`Pressed`'s long-press Timer is armed but its handler is intentionally
+  unwired** in this slice, per the issue's wording ("the LongPress
+  emission is wired in slice 04"). The timer's RAII lifecycle is exercised
+  by every press/release cycle — `Pressed.Locals` dtor cancels it on
+  transition out. Test 4 (single click → Active) walks this path with
+  asserts on `armed_count()` along the way.
+
+- **Existing test 1/2/3 assertions were updated**, not just appended to.
+  Slice 03 adds the Classifier's reaction to `KeyChanged<DBS>` fanout
+  (Idle → Pressed), which arms a long-press Timer and pins one
+  Subscription in the pool. Every previous `armed_count()` and
+  `subscriber_count()` assertion that was true in slice 02 needed the
+  Classifier's contributions added in. The intent of each test
+  (Debouncer-specific behaviour) is preserved; only the runtime-state
+  expectations changed. Per the issue's "All existing tests still pass"
+  criterion and the static_assert update requirement, this read as
+  in-scope, but flagging it explicitly since the changes touch test
+  assertions written in slice 02.
+
+- **PRD-numbered test cases.** Test 4 maps to PRD scenario 3
+  (single-click); test 5 maps to PRD scenario 6 (RAII baseline). Tests
+  1/2/3 are the slice 01 scaffold round-trip plus PRD scenarios 1/2
+  inherited from slice 02. PRD scenarios 4 (double-click) and 5
+  (long-press) arrive in slice 04.
+
+Nothing skipped or deferred relative to the acceptance criteria — every
+checkbox is satisfied as written.
+
