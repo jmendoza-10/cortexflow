@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 
 #include <cortexflow/cache.hpp>
@@ -12,6 +13,7 @@
 
 #include "keys.hpp"
 #include "modules/button_reader.hpp"
+#include "modules/debouncer.hpp"
 
 namespace button_pipeline {
 
@@ -21,21 +23,26 @@ namespace button_pipeline {
 // (duplicate module, send-to-unknown-target, etc.) are compile-time errors
 // at the Runtime's static_asserts.
 //
-// This is the initial scaffold: one Boundary module, no cache keys. Later
-// slices expand the lists:
-//   - slice 02 adds Debouncer + Owned<DebouncedButtonState, Debouncer>
-//   - slice 03 adds ClickClassifier, UiController + Owned<UiMode, UiController>
+// Slice 02: ButtonReader (boundary) + Debouncer (owner of
+// DebouncedButtonState). Slice 03 adds ClickClassifier and UiController +
+// Owned<UiMode, UiController>.
 // ---------------------------------------------------------------------------
 
-using Modules = cortexflow::ModuleList<ButtonReader>;
+using Modules = cortexflow::ModuleList<ButtonReader, Debouncer>;
 
-using Keys = cortexflow::CacheKeyList<>;
+using Keys = cortexflow::CacheKeyList<
+    cortexflow::Owned<DebouncedButtonState, Debouncer>>;
 
 using AppConfig = cortexflow::Config<cortexflow::MaxSubscriptions<8>>;
 
 using Runtime = cortexflow::Runtime<Modules, Keys, AppConfig>;
 
 using AppCache = cortexflow::Cache<Keys, AppConfig::kMaxSubscriptions>;
+
+// Lockout window for the Debouncer's CoolingDown state. The integration
+// tests advance ManualClock by exactly this duration to fire the timer that
+// drives CoolingDown → Settled.
+inline constexpr std::chrono::milliseconds kDebounceWindow{5};
 
 // ---------------------------------------------------------------------------
 // Cross-module access to the running runtime.
