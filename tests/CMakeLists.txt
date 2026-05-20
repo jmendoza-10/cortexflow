@@ -112,6 +112,17 @@ target_link_libraries(test_minimal_app PRIVATE minimal_app_lib doctest)
 
 add_test(NAME minimal_app COMMAND test_minimal_app)
 
+# End-to-end fixture against the button_pipeline composition. Grows
+# scenario-by-scenario across the slice chain (see
+# `.scratch/button-pipeline-example/issues/`); the initial slice exercises
+# only the App lifecycle round-trip on the scaffolded composition.
+add_executable(test_button_pipeline
+    integration/test_button_pipeline.cpp
+)
+target_link_libraries(test_button_pipeline PRIVATE button_pipeline_lib doctest)
+
+add_test(NAME button_pipeline COMMAND test_button_pipeline)
+
 # No-target-ifdefs guard: PRD US 44 — "the same module code runs on every
 # supported environment without `#ifdef` walls in module code." Grep the
 # public headers, core sources, and the cross-target test for any
@@ -124,6 +135,7 @@ hits=$(grep -rEn \"$needle\" \
     '${PROJECT_SOURCE_DIR}/include/cortexflow' \
     '${PROJECT_SOURCE_DIR}/src/cortexflow' \
     '${PROJECT_SOURCE_DIR}/examples/minimal_app' \
+    '${PROJECT_SOURCE_DIR}/examples/button_pipeline' \
     '${CMAKE_CURRENT_SOURCE_DIR}/integration/test_platform.cpp' \
     2>/dev/null || true); \
 if [ -n \"$hits\" ]; then \

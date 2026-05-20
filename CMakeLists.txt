@@ -121,6 +121,7 @@ include("${_target_file}")
 
 if(CORTEXFLOW_BUILD_EXAMPLES)
     add_subdirectory(examples/minimal_app)
+    add_subdirectory(examples/button_pipeline)
 endif()
 
 if(CORTEXFLOW_BUILD_TESTS)
