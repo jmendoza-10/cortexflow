@@ -1,7 +1,6 @@
 # Host stdin driver, committed diagrams, and README polish
 
-Status: ready-for-agent
-
+Status: merged
 ## Parent
 
 [PRD: button_pipeline](../PRD.md)
@@ -61,3 +60,94 @@ The root `README.md` is updated in two places:
 ## Blocked by
 
 - [05-add-double-click-branch](05-add-double-click-branch.md)
+
+## Comments
+
+**2026-05-20 — from afk worker**
+
+What I built:
+
+- `examples/button_pipeline/main.cpp` is now a real interactive driver.
+  A reader thread reads characters from `std::cin` (one-at-a-time via
+  `cin.get`, whitespace included), maps `'d'` → press / `' '`,`'u'` →
+  release, ignores everything else, and posts each transition through
+  `app.post(...)` from the foreign thread. Both EOF and SIGINT end up
+  calling `app.stop()`; the main thread is blocked in `app.run()`,
+  wakes on `stop()`, joins the reader, then `shutdown()`.
+- Diagrams generated and committed: `docs/diagrams/flows/debouncer.flow.mmd`,
+  `…/clickclassifier.flow.mmd`, `…/uicontroller.flow.mmd`, and
+  `docs/diagrams/modules/button_pipeline.modules.mmd`.
+- `examples/button_pipeline/README.md` written: pipeline ASCII diagram,
+  walkthrough, "Messages vs cache: what travels where" with the
+  Debouncer split table, "Driving the example" with both the binary
+  and the test pattern, and the "Where to look in the framework"
+  table.
+- Root `README.md`: added the "Pick an example" cue in *Where to
+  start* and extended the *Run everything CI runs* snippet to invoke
+  `gen-diagrams.py` for `examples/button_pipeline/app.hpp` too.
+  Updated *Layout* to list both examples.
+
+Things the reviewer should look at:
+
+- **Signal-handling subtlety in `main.cpp`.** A naive
+  `std::signal(SIGINT, handler)` doesn't actually unblock the
+  reader's `std::cin.get` on macOS / glibc, because (a) `std::signal`
+  installs with `SA_RESTART` set by default on glibc and (b) the
+  signal isn't guaranteed to land on the reader thread. The
+  implementation therefore installs the handler with `sigaction`
+  (no `SA_RESTART`) and uses `pthread_sigmask` to block `SIGINT` on
+  the main thread and unblock it in the reader. That way the read
+  syscall returns EINTR, the stream fails, and the reader's loop
+  exits cleanly — without that combination, `reader.join()` would
+  deadlock under Ctrl-C. The header comment in `main.cpp` documents
+  the contract; the README's *Driving the example* paragraph
+  summarises it. Worth a second pair of eyes if there's a preferred
+  alternative idiom in CortexFlow code (e.g. self-pipe).
+
+- **Scope creep into `scripts/diagrams/composition.py`.** The
+  script's existing `_resolve_header` only matched filenames against
+  the lowercased class name (e.g. `Producer` → `producer.hpp`). That
+  worked for `minimal_app` but couldn't find
+  `modules/button_reader.hpp` for `ButtonReader`. I extended it
+  additively with a PascalCase→snake_case alternative
+  (`ButtonReader` → `button_reader.hpp`) and added a docstring
+  noting the convention; the existing single-word lookup is
+  preserved so `minimal_app` still resolves identically. Acronym
+  runs (e.g. `URLParser`) collapse to a single segment, which is
+  fine for the current examples but flagged in the helper's
+  docstring as something to revisit.
+
+- **`scripts/tests/test_e2e.py` updated to iterate both apps.** The
+  test previously invoked `gen-diagrams.py` once for `minimal_app`
+  and asserted equality with everything under
+  `docs/diagrams/{flows,modules}/`. After committing the
+  `button_pipeline` outputs the comparison set has four extra
+  files, so the test now drives `gen-diagrams.py` over both apps
+  before comparing — the same shape the root README's CI snippet
+  now uses. The issue said the diagram-tooling tests shouldn't be
+  "perturbed" by the second target; I read that as "no structural
+  redesign" rather than "literally no edits," because the
+  comparison set genuinely changes when a second target lands.
+  Flagging the interpretation in case the reviewer reads it
+  differently.
+
+- **`modules` Mermaid graph has 4 duplicate `KeyChanged` edges.**
+  The generated `button_pipeline.modules.mmd` lists four identical
+  `DebouncedButtonState -.->|"KeyChanged"| ClickClassifier` edges
+  — one per Classifier state's `Subscription` site. That is
+  existing behaviour of `module_graph_extractor`, not a regression
+  introduced by this slice (it just happens not to manifest in
+  `minimal_app`, where only one state subscribes). Treated as
+  out-of-scope for this issue; worth a follow-up if you want the
+  graph to dedupe fanout edges.
+
+Skipped / deferred: none of the acceptance criteria.
+
+Verification: host build (default), POSIX build, full `ctest`
+(23/23 passing on both), `python3 -m pytest` (30/30 passing), and
+the two-app drift guard `python3 scripts/gen-diagrams.py
+examples/minimal_app/app.hpp && python3 scripts/gen-diagrams.py
+examples/button_pipeline/app.hpp && git diff --exit-code
+docs/diagrams/` reports no diff. Also smoke-tested the new binary
+with `printf 'd uddu' | ./build/examples/button_pipeline/button_pipeline`
+and it exits 0 on EOF as expected.
