@@ -1,7 +1,6 @@
 # Add the double-click branch end-to-end
 
-Status: ready-for-agent
-
+Status: merged
 ## Parent
 
 [PRD: button_pipeline](../PRD.md)
@@ -36,3 +35,22 @@ The integration test gains scenario 4. Its job is to pin that a double press-rel
 ## Blocked by
 
 - [04-add-long-press-branch](04-add-long-press-branch.md)
+
+## Comments
+
+Built — all acceptance criteria met:
+
+- `ClickClassifier`'s `StateList` now carries `<Idle, Pressed, AwaitingSecondClick, SecondPressed>`.
+- `SecondPressed.Locals` holds only a `Subscription` (no Timer — the gesture resolves on release, not a deadline).
+- `AwaitingSecondClick.handle` transitions to `SecondPressed` on `KeyChanged<DBS>{true}`; the AwaitingSecondClick Locals dtor cancels the double-click Timer in the same step.
+- `SecondPressed.handle` transitions to `Idle` on `KeyChanged<DBS>{false}`.
+- `UiController` is unchanged.
+- Integration test gained scenario 5 (test ordering: existing test 4 is single-click, new test 5 is double-click, old test 5/6/7 shifted to 6/7/8). The test posts press-release-press-release with the second press inside `kDoubleClickWindow`, drains past `kDoubleClickWindow`, and asserts `UiMode == Idle` — explicitly contrasting with test 4 in the comment header.
+- The RAII test (now test 8) extends after the single-click phase to also walk the full double-click sequence, exercising `SecondPressed`'s Locals dtor and the `AwaitingSecondClick → SecondPressed` Timer-cancellation path.
+- All 23 ctest targets pass on both `host` and `posix`.
+
+One design note worth flagging for the reviewer:
+
+The issue text says "`SecondPressed.handle` ... `send<UiController>(UiController::DoubleClick{})` then return `transition_to<Idle>()`", but state handlers are static and can't reach the module's `send<>` machinery (the same constraint that already drove timer-fire payloads to be intercepted at the module-level `handle` in slices 03/04). I followed the slice-04 pattern: `SecondPressed.handle` only returns the transition, and the module-level `handle` posts `DoubleClick` to UiController by gating on `flow.current() == &cortexflow::detail::kStateInfo<SecondPressed>` plus the `KeyChanged<DBS>{false}` payload. This uses `cortexflow::detail::kStateInfo<>` (a `detail::` symbol) — same compromise as the timer-payload type-id check, and the example is already deeply intermediate with framework internals (`type_id<>`, `Module<>`, etc.). The acceptance criterion's "what the SecondPressed state does on release" is preserved logically; the `send` just lives one frame up. If the reviewer wants to keep state handlers strictly out of `cortexflow::detail::`, an alternative would be a per-state dispatch shim, but that's a framework-level change outside the slice's scope.
+
+— 2026-05-20, from afk worker
