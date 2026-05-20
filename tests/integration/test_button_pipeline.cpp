@@ -30,17 +30,17 @@ using namespace std::chrono_literals;
 
 // ---------------------------------------------------------------------------
 // Compile-time composition shape — pins the current shape so silent
-// composition drift fails at compile time. Slice 04 will extend this as
-// the LongPress / DoubleClick branches arrive (the Configuring state on
-// UiController, the double-click-press handler on ClickClassifier).
+// composition drift fails at compile time. Slice 05 will extend the
+// ClickClassifier with a `SecondPressed` state for the double-click
+// branch; the module / key counts stay as they are.
 // ---------------------------------------------------------------------------
 
 static_assert(button_pipeline::Runtime::kNumModules == 4,
-              "button_pipeline slice 03: "
+              "button_pipeline slice 04: "
               "ModuleList<ButtonReader, Debouncer, ClickClassifier, "
               "UiController>");
 static_assert(button_pipeline::Keys::size == 2,
-              "button_pipeline slice 03: two cache keys "
+              "button_pipeline slice 04: two cache keys "
               "(Owned<DebouncedButtonState, Debouncer>, "
               "Owned<UiMode_Key, UiController>)");
 static_assert(button_pipeline::Runtime::kMaxSubscriptions == 8,
@@ -289,7 +289,155 @@ TEST_CASE("button_pipeline: single click drives UiMode to Active") {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5 — RAII pool counts return to baseline across a full gesture
+// Test 5 — Long press drives `UiMode` to `Configuring`; the eventual
+// release is a no-op (PRD scenario 5 / issue 04 scenario 5).
+//
+// Post a press, drain the debounce window, then advance past
+// `kLongPressThreshold`. The long-press Timer fires; ClickClassifier's
+// module-level handler posts `UiController::LongPress{}` and the flow
+// transitions `Pressed` → `Idle`, discarding the eventual release. The
+// UiController, on receiving `LongPress` in `Idle`, transitions to
+// `Configuring`, whose Locals constructor writes `UiMode::Configuring` to
+// the cache. A subsequent release lands at Classifier-Idle, which treats
+// `new_value == false` as a no-op — so `UiMode` stays at `Configuring`
+// after the release drains.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("button_pipeline: long press drives UiMode to Configuring; release is a no-op") {
+    cortexflow::ManualClock clk;
+    button_pipeline::App app{clk};
+    app.start();
+
+    // Press: Classifier Idle → Pressed (long-press Timer armed for
+    // kLongPressThreshold); Debouncer Settled → CoolingDown (debounce
+    // Timer armed for kDebounceWindow).
+    post_raw_transition(app, true);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(false) == true);
+    CHECK(app.timers_ref().armed_count() == 2);
+
+    // Drain the debounce window: debounce Timer fires, CoolingDown →
+    // Settled. The long-press Timer (kLongPressThreshold > kDebounceWindow)
+    // stays armed.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);
+
+    // Advance past the long-press threshold — long-press Timer fires.
+    // The module-level handler posts `UiController::LongPress{}` and
+    // Classifier transitions Pressed → Idle (long-press Timer's dtor
+    // releases the already-fired seq cleanly). UiController, in Idle,
+    // sees `LongPress` and transitions to `Configuring`, writing
+    // `UiMode::Configuring` to the cache.
+    clk.advance(button_pipeline::kLongPressThreshold);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Idle) ==
+          button_pipeline::UiMode::Configuring);
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.queue_size() == 0);
+
+    // Now release: Debouncer commits `false` and arms a fresh debounce
+    // Timer; Classifier (in Idle) sees `KeyChanged<>{false}` and stays
+    // — the release post-long-press is intentionally absorbed. No
+    // gesture is emitted to UiController, so UiMode stays at
+    // `Configuring`.
+    post_raw_transition(app, false);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(true) == false);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Idle) ==
+          button_pipeline::UiMode::Configuring);
+    CHECK(app.timers_ref().armed_count() == 1);  // debounce only
+
+    // Drain the debounce; nothing else should change.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Idle) ==
+          button_pipeline::UiMode::Configuring);
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.queue_size() == 0);
+
+    app.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Test 6 — A second long press from `Configuring` returns `UiMode` to
+// `Idle` (issue 04 sub-case).
+//
+// Sequences a full long-press → release → press → long-press cycle:
+// after the first long-press the system is in `Configuring`; after the
+// second the `Configuring → Idle` transition fires and the cache reads
+// back `UiMode::Idle`.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("button_pipeline: long press from Configuring returns UiMode to Idle") {
+    cortexflow::ManualClock clk;
+    button_pipeline::App app{clk};
+    app.start();
+
+    // First long press: drive UiMode to Configuring.
+    post_raw_transition(app, true);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    clk.advance(button_pipeline::kLongPressThreshold);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Idle) ==
+          button_pipeline::UiMode::Configuring);
+
+    // Release the button and drain the debounce window so DBS == false
+    // before we press again. UiMode stays Configuring throughout.
+    post_raw_transition(app, false);
+    app.run_one();
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::DebouncedButtonState>()
+              .value_or(true) == false);
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Idle) ==
+          button_pipeline::UiMode::Configuring);
+    CHECK(app.timers_ref().armed_count() == 0);
+
+    // Second press from `Configuring`: Classifier Idle → Pressed
+    // re-arms the long-press Timer.
+    post_raw_transition(app, true);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 2);  // debounce + long-press
+
+    // Drain debounce.
+    clk.advance(button_pipeline::kDebounceWindow);
+    app.run_one();
+    CHECK(app.timers_ref().armed_count() == 1);
+
+    // Advance past the long-press threshold. LongPress is sent;
+    // UiController `Configuring` → `Idle` writes UiMode::Idle.
+    clk.advance(button_pipeline::kLongPressThreshold);
+    app.run_one();
+    CHECK(app.cache_ref()
+              .get<button_pipeline::UiMode_Key>()
+              .value_or(button_pipeline::UiMode::Configuring) ==
+          button_pipeline::UiMode::Idle);
+    CHECK(app.timers_ref().armed_count() == 0);
+    CHECK(app.queue_size() == 0);
+
+    app.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Test 7 — RAII pool counts return to baseline across a full gesture
 // (PRD scenario 6).
 //
 // Mirrors `minimal_app`'s test 4: walks the same single-click sequence as
