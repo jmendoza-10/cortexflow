@@ -14,9 +14,7 @@ graph LR
     Debouncer ==>|"writes"| DebouncedButtonState
     UiController ==>|"writes"| UiMode_Key
     DebouncedButtonState -.->|"KeyChanged"| ClickClassifier
-    DebouncedButtonState -.->|"KeyChanged"| ClickClassifier
-    DebouncedButtonState -.->|"KeyChanged"| ClickClassifier
-    DebouncedButtonState -.->|"KeyChanged"| ClickClassifier
     ClickClassifier -->|"UiController::Click"| UiController
     ClickClassifier -->|"UiController::LongPress"| UiController
     ClickClassifier -->|"UiController::DoubleClick"| UiController
+    ButtonReader -->|"Debouncer::RawTransition"| Debouncer

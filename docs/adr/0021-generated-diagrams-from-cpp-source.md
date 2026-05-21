@@ -74,6 +74,10 @@ Cache keys are **first-class nodes** in the Module graph alongside modules, not 
 - `Module --[writes]--> CacheKey` from `Owned<K, M>` declarations in `CacheKeyList`.
 - `CacheKey --[KeyChanged]--> Module` from `cache().subscribe<K, M>()` call sites.
 
+Edges are deduplicated by `(source, target, kind, label)`. The same logical arrow can fall out of more than one match — e.g. a Module whose four states each construct a Locals that subscribes to the same key yields four byte-identical `Key -.-> Module` matches — and the rendered graph collapses them to a single line.
+
+**Boundary-module marker.** A *Boundary* module (CONTEXT.md) labels the place where external events cross into the runtime queue. By construction it does not call `send<>` itself — the foreign thread or integration test that drives the boundary calls `app.post(...)` on the module's behalf, and that call site lives outside the runtime. The earlier rejection of "source annotations" in *Alternatives considered* below targets annotations that mirror executable code; here there is no executable code to drift from. To keep the diagram from showing a Boundary module as an orphan, the module's header may declare its out-of-source posts with a `// boundary-post: <Receiver> <MessageType>` comment per posted type. Each marker produces a `send`-style edge as if the module had called `send<Receiver>(MessageType{})` directly. The marker is documentation that names an exogenous contract; the receiver is still validated against `ModuleList` so a typo cannot draw a dangling edge.
+
 Non-subscribing cache readers (modules that poll `cache().get<K>()` without subscribing) are deferred until their absence is shown to harm comprehension. Direct cross-module method calls are also deferred; they are rare in the framework and not reliably distinguishable from ordinary calls by regex.
 
 ### Output and CI

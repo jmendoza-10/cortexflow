@@ -13,6 +13,22 @@ walk needed for that channel. The cross-Module `send<>` calls and the
 `subscribe<>` call sites are pulled from each Module's `.cpp` via regex
 against the neutralized (comment- and string-stripped) source.
 
+Boundary modules (e.g. `ButtonReader`) own no Flow and post no envelopes
+themselves — the foreign thread or integration test that drives the boundary
+calls `app.post(...)` on the module's behalf, and that call lives outside
+the runtime where the extractor cannot see it. To keep the diagram from
+showing a misleading orphan node, boundary modules may declare their
+out-of-source posts via a `// boundary-post: <Receiver> <MessageType>`
+comment in the module header; each such line produces a `send` edge as if
+the boundary module had called `send<Receiver>(MessageType{})` directly.
+The marker is documentation that names a contract the C++ source cannot
+express — it is not enforced by the compiler.
+
+Edges are deduplicated before return. The same logical edge can fall out
+of two different patterns — e.g. four subscribe call sites in a Module
+with four states all yield the same `Key -.-> Module` arrow — and the
+rendered graph collapses to a single line per (source, target, kind, label).
+
 Out of scope for v1: non-subscribing Cache reads (`cache().get<K>()` without
 a subscription) and direct cross-Module method calls. ADR-0021 records the
 rejection rationale; this extractor deliberately ignores both.
@@ -21,7 +37,7 @@ rejection rationale; this extractor deliberately ignores both.
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Tuple
 
 from .brace_scope import neutralize
 from .composition import AppComposition
@@ -52,6 +68,17 @@ _SEND_RE = re.compile(
 _SUBSCRIBE_RE = re.compile(
     r'\bcache\s*\(\s*\)\s*\.\s*subscribe\s*<\s*'
     r'([A-Za-z_][\w:]*)\s*,\s*([A-Za-z_][\w:]*)\s*>\s*\('
+)
+
+# `// boundary-post: <Receiver> <MessageType>`. Matched against the *raw*
+# header text (not the neutralized one) because the marker lives in a
+# comment that neutralize() would blank. Both tokens are qualified-identifier
+# shaped; the receiver is matched against the composition's ModuleList and
+# a marker pointing at an unknown module is dropped to match the existing
+# `send<>()` cross-app behavior.
+_BOUNDARY_POST_RE = re.compile(
+    r'//\s*boundary-post\s*:\s*'
+    r'([A-Za-z_][\w:]*)\s+([A-Za-z_][\w:]*)'
 )
 
 
@@ -120,12 +147,50 @@ def extract(composition: AppComposition) -> ModuleGraphIR:
                 label=message,
             ))
 
+    # boundary-post markers: read each Module's .hpp raw (comments are the
+    # signal, not noise — so neutralize() would erase what we're looking for).
+    for module in composition.modules:
+        header_text = module.header_path.read_text()
+        for match in _BOUNDARY_POST_RE.finditer(header_text):
+            receiver = match.group(1).split('::')[-1]
+            message = match.group(2)
+            if receiver == module.name:
+                continue
+            if receiver not in module_names:
+                continue
+            edges.append(ModuleGraphEdge(
+                source=module.name,
+                target=receiver,
+                kind=EDGE_SEND,
+                label=message,
+            ))
+
+    edges = _dedup_edges(edges)
+
     return ModuleGraphIR(
         app=composition.app_namespace,
         app_short=composition.app_short,
         nodes=nodes,
         edges=edges,
     )
+
+
+def _dedup_edges(edges: List[ModuleGraphEdge]) -> List[ModuleGraphEdge]:
+    """Collapse byte-identical edges, preserving first-seen order. Two
+    distinct call sites can yield the same `(source, target, kind, label)`
+    tuple — e.g. four state Locals constructors that each call
+    `cache().subscribe<DebouncedButtonState, ClickClassifier>()` — and the
+    graph should show one arrow per logical relationship, not one per match.
+    """
+    seen: Set[Tuple[str, str, str, str]] = set()
+    out: List[ModuleGraphEdge] = []
+    for edge in edges:
+        key = (edge.source, edge.target, edge.kind, edge.label)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(edge)
+    return out
 
 
 def _extract_send_message(text: str, paren_open_end: int) -> Optional[str]:

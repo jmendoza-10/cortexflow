@@ -18,6 +18,15 @@ namespace button_pipeline {
 // to Debouncer and posts them through `app.post(...)`. ButtonReader is
 // registered in `ModuleList` so the example demonstrates that boundary
 // modules are a convention, not an enforced base class.
+//
+// The `// boundary-post:` marker below is read by `scripts/gen-diagrams.py`
+// and rendered as a `send`-style edge in the Module graph. It documents the
+// contract between the boundary module and whatever foreign code does the
+// actual `app.post(...)` — a contract the C++ source cannot express (the
+// post site lives outside the runtime). Without the marker, ButtonReader
+// would render as an orphan node, contradicting the pipeline narrative.
+//
+// boundary-post: Debouncer Debouncer::RawTransition
 class ButtonReader : public cortexflow::Module<ButtonReader> {
 public:
     using Inbox = std::tuple<>;
