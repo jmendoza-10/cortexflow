@@ -287,11 +287,11 @@ public:
                 CORTEXFLOW_ASSERT(dir.next != nullptr,
                     "cortexflow::Flow: transition directive carries null next");
                 // FULL-level trace for the state transition. The "from"
-                // slot is the owning module name, the type slot is the
-                // Flow's StateList type, and the key-fields slot carries
+                // slot is the owning module name and `key_fields` carries
                 // the human-readable `<from_state>-><to_state>` rendered
-                // from each state's `kStateInfo` name (set at compile
-                // time via `type_name_cstr`).
+                // from each state's `kStateInfo` name. The type slot is
+                // "-" — a transition is module-scoped, so the `StateList<…>`
+                // type would only repeat what `from` already says.
                 char transition_buf[128];
                 std::snprintf(transition_buf, sizeof(transition_buf),
                               "%s->%s", current_->name, dir.next->name);
@@ -299,7 +299,7 @@ public:
                     "transition",
                     type_name_cstr<Owner>(),
                     "-",
-                    type_name_cstr<StateListT>(),
+                    "-",
                     transition_buf);
                 current_->destruct_locals(locals_buffer_);
                 current_ = dir.next;
