@@ -1,6 +1,6 @@
 # Trace infrastructure: six levels, compile-time selection, pluggable sink
 
-Status: ready-for-agent
+Status: merged
 PRD: `docs/prd.md` — Trace subsystem; user stories 17, 18, 19, 56
 
 ## What to build
@@ -100,3 +100,42 @@ Concretely:
 - Do **not** add a global `type_id_t → const char*` runtime registry to resolve payload type names. Names live next to the static type via `type_name<T>()` — keep it that way.
 
 **Why this is `ready-for-agent` not a sibling issue:** keeping the history on one ticket so a reviewer can see the gap-and-fix together. See [feedback_in_flight_issues] memory — sibling proliferation discouraged.
+
+### 2026-05-21 — from afk worker
+
+**What was built (re-pass):**
+
+Wired all promised instrumentation call-sites. Confirmed by `examples/button_pipeline` printing one DISPATCH line per envelope at the default level, and additional cache_write / transition / timer_arm / timer_cancel / timer_fire lines at FULL. New `tests/integration/test_button_pipeline_trace.cpp` pins the trace output for the canonical single-click scenario.
+
+1. **DISPATCH `envelope` trace** (`include/cortexflow/runtime.hpp`): emitted once per `Runtime::dispatch` invocation, before module lookup. `from`/`to` are resolved by walking `ModuleList` against `env.from()` and `env.to()`; module names come from a new `type_name_cstr<T>()` helper that holds a NUL-terminated static per-type buffer. `kNoSender` renders as `"-"`; ids not in `ModuleList` (including `kSystemSender`) render as `unknown:<hex>`. Payload-type names come from a per-module `trace_payload_name(type_id_t)` virtual that walks a compile-time `TraceNameTable` built from `Inbox` and an optional `TraceTypes` typedef. When the lookup fails, the slot falls back to `type:<hex>` — the labelled form keeps the reader-debuggable promise while making it obvious that name resolution did not succeed.
+
+2. **FULL `cache_write` trace** (`include/cortexflow/cache.hpp`): emitted from `Cache::set<K>` *before* the `KeyChanged` fan-out, so the trace ordering matches the causal "write → notify" order the runtime promises. The owner-name slot resolves statically by walking `CacheKeyListT` for the matching `Owned<K, Owner>` wrapper (new `detail::owner_lookup`); plain keys (no `Owned<>` wrapper) render `"-"`.
+
+3. **FULL `timer_arm` / `timer_cancel` / `timer_fire` traces** (`include/cortexflow/timer.hpp`): the heap `Entry` now carries `owner_name` and `type_name` `const char*` captured at arm time (both pointing into static `type_name_cstr<>()` storage, so they outlive the entry). The templated `arm<Target, Msg>` overload threads `type_name_cstr<Target>()` as owner and `type_name_cstr<Msg>()` as type. The generic `arm(delay, env, ...)` overload accepts optional `owner_name`/`type_name` arguments defaulting to `"-"`. Cancel-from-destructor recovers the strings from the live heap entry by `seq`. Fire emits before posting so a reader can verify causality without consulting timestamps.
+
+4. **FULL `transition` trace** (`include/cortexflow/flow.hpp`): emitted from `Flow::step` on every Transition / TransitionNow directive. `StateInfo` gained a `name` field initialised from `type_name_cstr<StateTag>()` at the existing `kStateInfo` constant; the trace's key-fields slot renders `"<from_state>-><to_state>"` from those names. Module-name slot is `type_name_cstr<Owner>()`; type slot is `type_name_cstr<StateListT>()`.
+
+5. **Names visible — Flow-driven modules**: `examples/button_pipeline`'s `Debouncer` and `ClickClassifier` use empty `Inbox = std::tuple<>` (they route through `flow.step`), so the per-module `TraceNameTable` would be empty by default and DISPATCH lines would fall through to the `type:<hex>` placeholder. Added a small additive `using TraceTypes = std::tuple<...>;` to each declaring the payload types they receive (the framework declares this typedef as opt-in alongside `Inbox`; only the lookup table consumes it). This is the minimum change to the example modules that gets the reviewer's "names visible" requirement testable from outside.
+
+6. **Integration test** (`tests/integration/test_button_pipeline_trace.cpp`): strong-symbol override of `platform_trace_sink` captures every record, then drives the canonical single-click scenario. Asserts (a) every required kind appears, (b) `cache_write(DebouncedButtonState)` precedes the `KeyChanged` envelope, (c) `timer_arm(LongPressExpired)` precedes `timer_cancel(LongPressExpired)`, (d) `timer_arm(DoubleClickExpired)` precedes `timer_fire(DoubleClickExpired)`, (e) at least one line per kind carries a recognisable name substring (Debouncer, ClickClassifier, KeyChanged, etc.), (f) no `from`/`to`/`type_name` slot contains an unlabelled 16-hex-digit run — only the explicit `type:<hex>` / `unknown:<hex>` fallbacks are allowed. Body bails out with a `MESSAGE` at lower build levels so the suite stays buildable at the default DISPATCH.
+
+**Verification:**
+
+- `cmake -DCORTEXFLOW_BUILD_TESTS=ON -DCORTEXFLOW_BUILD_EXAMPLES=ON`: all 24 tests pass (default DISPATCH level).
+- Same with `-DCORTEXFLOW_TRACE_LEVEL=FULL`: all 24 tests pass; `test_button_pipeline_trace` exercises the new assertions.
+- Same with `-DCORTEXFLOW_TARGET=posix`: all 24 tests pass.
+- `trace_elision` test still passes at `OFF` — the new call-sites all use the existing `CORTEXFLOW_TRACE_*` macros so they elide identically.
+- Manual run of `examples/button_pipeline`: at default DISPATCH one `envelope` line per RawTransition; at FULL additionally cache_write, transition, timer_arm/cancel/fire with recognisable names (e.g. `button_pipeline::Debouncer`, `button_pipeline::Debouncer::RawTransition`, `button_pipeline::Settled->button_pipeline::CoolingDown`).
+
+**Note on scope:**
+
+The reviewer's note flagged `Envelope::type_string()` as a numeric-form caller to audit. The method does not exist in the current tree (the source-of-truth file `messaging.hpp` reviewed in this re-pass has no such symbol; a `grep type_string` across the tree returns zero matches). Treated as already resolved.
+
+The two `using TraceTypes = std::tuple<...>;` additions to `Debouncer` and `ClickClassifier` are the only changes outside the framework headers — required by the "names visible" acceptance check, additive only (no behaviour change). The runtime treats `TraceTypes` as opt-in and falls back to `type:<hex>` when it is absent, so future modules can adopt it incrementally.
+
+**Anything to flag to the reviewer:**
+
+- For timers armed via the templated `TimerService::arm<Target, Msg>` (the only path the examples use), the trace's owner-name slot renders the *target* module — the convention being that arming modules typically deliver back to themselves. Generic `arm(delay, env)` calls without explicit names render `"-"` in the owner slot. If a future call site arms a timer for a different module, the trace will read with the destination as owner; the integration test does not pin this beyond "owner contains Debouncer / ClickClassifier" so the convention can be revisited if it confuses readers.
+- The Flow state-transition trace uses `type_name<StateListT>()` for the type-name slot (e.g. `cortexflow::StateList<button_pipeline::Settled, button_pipeline::CoolingDown>`). It is a long string; if a leaner identifier is preferred, the slot is the natural place to swap in something else without touching call sites.
+
+Signed off — 2026-05-21, from afk worker.
