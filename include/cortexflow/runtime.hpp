@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdio>
@@ -194,18 +195,35 @@ public:
 
     // Block on CV, drain, repeat. Returns when stop() is signaled and
     // the queue has been drained.
+    //
+    // The CV wait is bounded so wall-clock-armed timers fire on schedule
+    // under a real-time clock (production `SteadyClock`) without a separate
+    // ticker thread: every iteration computes a deadline that is the earlier
+    // of `next_due_at()` (when a timer is armed) and `min_tick_interval`
+    // (the heartbeat that keeps the loop responsive to `stop()` and timers
+    // armed from inside a handler). After each wake the loop calls
+    // `timers_.fire_due()` against the current clock; under `ManualClock`
+    // this is a no-op until tests call `clock.advance(...)`, preserving
+    // test-only determinism semantics. See issue 20.
     void run() {
         CORTEXFLOW_ASSERT(started_, "Runtime::run before start()");
         while (true) {
             {
                 std::unique_lock<std::mutex> lock(mutex_);
-                cv_.wait(lock, [&] {
+                const auto deadline = std::chrono::steady_clock::now() +
+                                      compute_wait_budget();
+                cv_.wait_until(lock, deadline, [&] {
                     return !queue_.empty() || stop_requested_.load();
                 });
                 if (queue_.empty() && stop_requested_.load()) {
                     return;
                 }
             }
+            // Fire any wall-clock-due timers before draining the queue so
+            // their envelopes interleave with normal posts in the same
+            // dispatch pass. Cheap when nothing is due — the service tests
+            // its heap under its own mutex and returns early.
+            timers_.fire_due();
             run_one();
             if (stop_requested_.load()) {
                 // Drain any final messages posted during the last batch.
@@ -323,9 +341,49 @@ public:
     }
 
 private:
+    // Minimum cadence at which `run()` wakes when no timer is armed. Keeps
+    // the loop responsive to `stop()` and to timers armed from inside a
+    // handler whose CV-wakeup did not race with this iteration's wait. Set
+    // to 1 ms per issue 20 — sub-millisecond cadence is a separate concern
+    // (CPU usage, kernel scheduler granularity) and explicitly out of
+    // scope. Not configurable via composition by design; a future host
+    // build that wants a different value can change this constant locally.
+    static constexpr std::chrono::milliseconds kMinTickInterval{1};
+
     static SteadyClock& default_steady_clock() {
         static SteadyClock clk;
         return clk;
+    }
+
+    // Compute how long `run()`'s `cv_.wait_until` should block before the
+    // next `fire_due` pass. Capped at `kMinTickInterval` so that:
+    //  - foreign-thread `arm()` calls (which don't notify the CV) are
+    //    observed within a tick;
+    //  - timers armed under `ManualClock` (whose `now()` only advances on
+    //    explicit `advance(...)`) don't trap the loop in a wall-clock sleep
+    //    that ignores the test driver;
+    //  - `stop()` from a thread whose notify raced the wait still gets
+    //    observed within a tick (AC5).
+    // Below the cap we use the earliest live timer's remaining time when
+    // that is sooner — a timer with 0.3 ms to go shouldn't wait the full
+    // tick — and clamp to zero for already-due timers so they fire on the
+    // immediate next iteration.
+    std::chrono::steady_clock::duration compute_wait_budget() const {
+        const auto cap =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                kMinTickInterval);
+        const auto next = timers_.next_due_at();
+        if (!next) {
+            return cap;
+        }
+        const auto remaining = *next - clock_->now();
+        if (remaining <= Clock::duration::zero()) {
+            return std::chrono::steady_clock::duration::zero();
+        }
+        const auto remaining_steady =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                remaining);
+        return remaining_steady < cap ? remaining_steady : cap;
     }
 
     static void post_trampoline(void* ctx, Envelope&& env) {

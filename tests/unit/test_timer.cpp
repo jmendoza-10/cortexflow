@@ -629,3 +629,80 @@ TEST_CASE("shutdown drops armed timers; start sees a clean service") {
 
     app.shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Real-time tick path: SteadyClock-backed Runtime fires a wall-clock-armed
+// timer from `run()` without any foreign post. This is the path issue 20
+// wires up — the host run loop's bounded `cv_.wait_until` periodically
+// pumps `TimerService::fire_due()` so production-clock timers don't stall.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "SteadyClock-backed run() self-wakes and fires a wall-clock-armed timer") {
+    using SteadyApp = cortexflow::Runtime<
+        cortexflow::ModuleList<TimerSink>,
+        cortexflow::CacheKeyList<>,
+        cortexflow::Config<cortexflow::DrainBudget<256>>>;
+
+    cortexflow::SteadyClock clk;
+    SteadyApp app{clk};
+    app.start();
+
+    auto t = app.timers().arm<TimerSink>(50ms, TimerTick{123});
+    CHECK(t.active());
+
+    const auto armed_at = std::chrono::steady_clock::now();
+    std::thread runner([&] { app.run(); });
+
+    // Poll for the fire — generous deadline absorbs scheduling jitter.
+    auto deadline = std::chrono::steady_clock::now() + 200ms;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (app.get<TimerSink>().seen == 1) break;
+        std::this_thread::sleep_for(2ms);
+    }
+    const auto observed_at = std::chrono::steady_clock::now();
+
+    CHECK(app.get<TimerSink>().seen == 1);
+    CHECK(app.get<TimerSink>().tags.size() == 1);
+    if (!app.get<TimerSink>().tags.empty()) {
+        CHECK(app.get<TimerSink>().tags.back() == 123);
+    }
+    // Sanity check: the fire must not happen earlier than the armed delay
+    // (proves the timer actually waited rather than being posted synchronously
+    // by some accidental path) and must land inside the 200 ms window.
+    const auto latency = observed_at - armed_at;
+    CHECK(latency >= 50ms);
+    CHECK(latency < 200ms);
+
+    app.stop();
+    runner.join();
+    app.shutdown();
+}
+
+TEST_CASE("SteadyClock-backed run() returns promptly on stop() with no timers") {
+    using SteadyApp = cortexflow::Runtime<
+        cortexflow::ModuleList<TimerSink>,
+        cortexflow::CacheKeyList<>,
+        cortexflow::Config<cortexflow::DrainBudget<256>>>;
+
+    cortexflow::SteadyClock clk;
+    SteadyApp app{clk};
+    app.start();
+
+    std::thread runner([&] { app.run(); });
+
+    // Give the runner a moment to enter wait_until.
+    std::this_thread::sleep_for(5ms);
+
+    const auto before = std::chrono::steady_clock::now();
+    app.stop();
+    runner.join();
+    const auto after = std::chrono::steady_clock::now();
+
+    // AC5: stop() must wake the loop within roughly `min_tick_interval` —
+    // 100 ms is generous slack for CI scheduler jitter and still proves the
+    // wait isn't getting stuck on a long deadline.
+    CHECK(after - before < 100ms);
+
+    app.shutdown();
+}

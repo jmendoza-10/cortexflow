@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <mutex>
+#include <optional>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -102,9 +103,11 @@ private:
 // holds its mutex across the entire heap walk and posts only what was in the
 // heap when the lock was acquired.
 //
-// Production `SteadyClock` provides no advance event and therefore fires no
-// timers under this backend in v1. A future real-time backend would register
-// its own fire path (a dedicated thread or platform timer ISR).
+// Production `SteadyClock` provides no advance event of its own, but the host
+// `Runtime::run` loop pumps `fire_due()` on every wake of its bounded
+// `cv_.wait_until` (see issue 20) so wall-clock-armed timers fire on schedule
+// without a dedicated ticker thread. Other targets (FreeRTOS, bare metal)
+// will register their own fire path on the matching `Clock` subclass.
 //
 // Concurrency: every public method is safe to call from any thread (the loop
 // thread or a foreign boundary-module thread). One mutex serialises the heap
@@ -256,6 +259,32 @@ public:
     std::size_t armed_count() const noexcept {
         std::lock_guard<std::mutex> lock(mutex_);
         return live_seqs_.size();
+    }
+
+    // Due time of the earliest live timer, expressed as a `Clock::duration`
+    // since the bound clock's epoch (matching `Clock::now()`). The host
+    // runtime uses this to bound the `cv_.wait_until` deadline in `run()` so
+    // wall-clock-armed timers fire on schedule without a separate ticker
+    // thread. Returns `std::nullopt` when no live timer is armed (the heap
+    // may still contain lazily-cancelled tombstones; those are skipped).
+    //
+    // Implementation: a linear scan of the heap, picking the minimum due
+    // among entries whose `seq` is still in `live_seqs_`. The heap top alone
+    // is not sufficient because the earliest entry may have been cancelled
+    // and will be reaped only on the next `fire_due` pop — using its due
+    // time would over-wake the run loop without anything to fire.
+    std::optional<Clock::duration> next_due_at() const noexcept {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::optional<Clock::duration> earliest;
+        for (const auto& e : heap_) {
+            if (live_seqs_.find(e.seq) == live_seqs_.end()) {
+                continue;
+            }
+            if (!earliest || e.due < *earliest) {
+                earliest = e.due;
+            }
+        }
+        return earliest;
     }
 
 private:
