@@ -196,25 +196,30 @@ public:
     // Block on CV, drain, repeat. Returns when stop() is signaled and
     // the queue has been drained.
     //
-    // The CV wait is bounded so wall-clock-armed timers fire on schedule
-    // under a real-time clock (production `SteadyClock`) without a separate
-    // ticker thread: every iteration computes a deadline that is the earlier
-    // of `next_due_at()` (when a timer is armed) and `min_tick_interval`
-    // (the heartbeat that keeps the loop responsive to `stop()` and timers
-    // armed from inside a handler). After each wake the loop calls
-    // `timers_.fire_due()` against the current clock; under `ManualClock`
-    // this is a no-op until tests call `clock.advance(...)`, preserving
-    // test-only determinism semantics. See issue 20.
+    // The CV wait is event-driven, not periodic: when a timer is armed the
+    // wait is bounded by `next_due_at()` (so wall-clock-armed timers fire
+    // on schedule under production `SteadyClock` without a ticker thread);
+    // when no timer is armed the wait is indefinite (no busy-loop). Posts
+    // and `stop()` wake the wait via `cv_.notify_*`, which preempts the
+    // deadline immediately. After each wake the loop calls
+    // `timers_.fire_due()`; under `ManualClock` this is a no-op until
+    // tests call `clock.advance(...)`, preserving test-only determinism.
+    // See issue 20.
     void run() {
         CORTEXFLOW_ASSERT(started_, "Runtime::run before start()");
         while (true) {
             {
                 std::unique_lock<std::mutex> lock(mutex_);
-                const auto deadline = std::chrono::steady_clock::now() +
-                                      compute_wait_budget();
-                cv_.wait_until(lock, deadline, [&] {
+                const auto pred = [&] {
                     return !queue_.empty() || stop_requested_.load();
-                });
+                };
+                if (const auto budget = compute_wait_budget()) {
+                    cv_.wait_until(lock,
+                                   std::chrono::steady_clock::now() + *budget,
+                                   pred);
+                } else {
+                    cv_.wait(lock, pred);
+                }
                 if (queue_.empty() && stop_requested_.load()) {
                     return;
                 }
@@ -341,49 +346,36 @@ public:
     }
 
 private:
-    // Minimum cadence at which `run()` wakes when no timer is armed. Keeps
-    // the loop responsive to `stop()` and to timers armed from inside a
-    // handler whose CV-wakeup did not race with this iteration's wait. Set
-    // to 1 ms per issue 20 — sub-millisecond cadence is a separate concern
-    // (CPU usage, kernel scheduler granularity) and explicitly out of
-    // scope. Not configurable via composition by design; a future host
-    // build that wants a different value can change this constant locally.
-    static constexpr std::chrono::milliseconds kMinTickInterval{1};
-
     static SteadyClock& default_steady_clock() {
         static SteadyClock clk;
         return clk;
     }
 
-    // Compute how long `run()`'s `cv_.wait_until` should block before the
-    // next `fire_due` pass. Capped at `kMinTickInterval` so that:
-    //  - foreign-thread `arm()` calls (which don't notify the CV) are
-    //    observed within a tick;
-    //  - timers armed under `ManualClock` (whose `now()` only advances on
-    //    explicit `advance(...)`) don't trap the loop in a wall-clock sleep
-    //    that ignores the test driver;
-    //  - `stop()` from a thread whose notify raced the wait still gets
-    //    observed within a tick (AC5).
-    // Below the cap we use the earliest live timer's remaining time when
-    // that is sooner — a timer with 0.3 ms to go shouldn't wait the full
-    // tick — and clamp to zero for already-due timers so they fire on the
-    // immediate next iteration.
-    std::chrono::steady_clock::duration compute_wait_budget() const {
-        const auto cap =
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                kMinTickInterval);
+    // Compute how long `run()`'s wait should block. Returns `nullopt` to
+    // mean "no timer armed, wait indefinitely" — the CV's predicate-driven
+    // wake on `post()` / `stop()` is what unblocks an idle loop. When a
+    // timer is armed, returns the remaining time until it's due (clamped
+    // to zero for already-due timers, so they fire on the next iteration).
+    //
+    // No idle heartbeat: a wholly-idle runtime burns no CPU. The only
+    // remaining race is a foreign-thread `arm()` while the loop is in an
+    // indefinite wait — currently a non-issue because `arm()` is only
+    // called from inside handlers (run-loop thread), so the loop always
+    // re-enters `wait` with the newly-armed timer visible to
+    // `next_due_at()`. If foreign-thread arming is ever introduced, plumb
+    // a `notify_one()` callback into `TimerService::arm()` rather than
+    // reinstating a periodic wake.
+    std::optional<std::chrono::steady_clock::duration> compute_wait_budget() const {
         const auto next = timers_.next_due_at();
         if (!next) {
-            return cap;
+            return std::nullopt;
         }
         const auto remaining = *next - clock_->now();
         if (remaining <= Clock::duration::zero()) {
             return std::chrono::steady_clock::duration::zero();
         }
-        const auto remaining_steady =
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                remaining);
-        return remaining_steady < cap ? remaining_steady : cap;
+        return std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            remaining);
     }
 
     static void post_trampoline(void* ctx, Envelope&& env) {
