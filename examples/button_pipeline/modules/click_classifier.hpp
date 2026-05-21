@@ -109,6 +109,13 @@ public:
     };
 
     using Inbox = std::tuple<>;
+    // `TraceTypes` declares the payload types the DISPATCH trace should
+    // recognise by name for this module (Debouncer/keys.hpp documents
+    // the same convention for the other flow-driven modules in this
+    // example).
+    using TraceTypes = std::tuple<
+        LongPressExpired, DoubleClickExpired,
+        cortexflow::KeyChanged<DebouncedButtonState>>;
 
     cortexflow::Flow<ClickClassifier,
                      cortexflow::StateList<Idle, Pressed, AwaitingSecondClick,

@@ -91,6 +91,12 @@ public:
     struct DebounceExpired {};
 
     using Inbox = std::tuple<>;
+    // `TraceTypes` declares the payload types the DISPATCH trace should
+    // recognise by name for this module. `Inbox` would normally serve
+    // that purpose, but flow-driven modules route through `flow.step`
+    // (see the class-level comment above) and therefore keep `Inbox`
+    // empty.
+    using TraceTypes = std::tuple<RawTransition, DebounceExpired>;
 
     cortexflow::Flow<Debouncer,
                      cortexflow::StateList<Settled, CoolingDown>> flow;
