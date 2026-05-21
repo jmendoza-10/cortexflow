@@ -1,6 +1,6 @@
 # Host runtime: real-time timer tick so wall-clock-armed timers actually fire
 
-Status: ready-for-agent
+Status: merged
 PRD: `docs/prd.md` — Time subsystem; user stories 42, 43 (extends the v1 clock work)
 
 ## Background — why this matters
@@ -135,3 +135,57 @@ None — depends only on `11-clock-manual-steady.md` and
   granularity).
 - Not adding a "real-time-only" mode to `ManualClock`. They stay
   orthogonal.
+
+## Comments
+
+2026-05-21 (from afk worker)
+
+Implemented the strongly-preferred shape: `Runtime::run` swaps `cv_.wait`
+for `cv_.wait_until` with a deadline computed by `compute_wait_budget()`,
+and the run loop calls `timers_.fire_due()` on every wake (before draining
+the queue, so timer envelopes interleave with normal posts in the same
+dispatch pass).
+
+What I built:
+
+- `TimerService::next_due_at()` (option 1 from the issue): returns the
+  earliest live timer's `due` time as `std::optional<Clock::duration>`.
+  Walks the heap once skipping lazily-cancelled tombstones — top-only
+  inspection isn't safe because the heap's earliest entry may have been
+  cancelled but not yet reaped by `fire_due`.
+- `Runtime::kMinTickInterval = 1ms`, `Runtime::compute_wait_budget()`.
+  The wait budget is `min(next_due - now, kMinTickInterval)`, clamped to
+  zero for already-due timers. I read AC5 ("must not delay shutdown more
+  than `min_tick_interval`") as a hard upper bound on the wait, so the
+  formula caps at 1 ms rather than the literal `max(...)` in the issue
+  text — those two read as inconsistent, and capping at 1 ms also
+  guarantees foreign-thread `arm()` calls (which don't notify the CV)
+  are observed within a tick. Reviewer: if the "long quiet period" sleep
+  was preferred over the strict AC5 cap, easy to flip the comparator.
+- Two new tests in `tests/unit/test_timer.cpp`:
+  - `SteadyClock-backed run() self-wakes and fires a wall-clock-armed
+    timer`: arms 50 ms, runs `app.run()` on a background thread, asserts
+    the timer fires in `[50ms, 200ms)`.
+  - `SteadyClock-backed run() returns promptly on stop() with no timers`:
+    proves `stop()` wakes the loop within 100 ms (CI slack on the 1 ms
+    bound).
+- Refreshed the `Production SteadyClock provides no advance event...`
+  comment block at the top of `timer.hpp` so it no longer claims timers
+  don't fire on host.
+
+Acceptance criteria verification (manual, `CORTEXFLOW_TRACE_LEVEL=FULL`):
+
+- Single click (`d`, 100 ms, ` `): `timer_fire Debouncer ...
+  DebounceExpired` at t≈0.005 then again at t≈0.111; `Click` dispatched
+  to `UiController` at t≈0.405 (after `DoubleClickExpired` fires).
+- Long-press (`d`, 700 ms, ` `): `LongPressExpired` fires at t≈0.500,
+  `UiController::LongPress` dispatched, `UiMode_Key` flips to
+  `Configuring`.
+- Double-click (`d  d ` with ~100 ms gaps): `DoubleClick` dispatched to
+  `UiController` at t≈0.332 via the `SecondPressed → Idle` branch.
+
+Test suite: 24/24 ctest tests pass under `CORTEXFLOW_TARGET=host` and
+`CORTEXFLOW_TARGET=posix`.
+
+Nothing skipped or deferred. The freertos / bare-metal real-time
+backends remain non-goals as called out in the issue.
