@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -49,6 +51,34 @@ constexpr std::string_view type_name() {
 template <typename T>
 constexpr type_id_t type_id() {
     return detail::fnv1a(type_name<T>());
+}
+
+namespace detail {
+
+// NUL-terminated copy of `type_name<T>()` held in a per-type static buffer.
+// `type_name<T>()` returns a `std::string_view` carved out of
+// `__PRETTY_FUNCTION__` — it is NOT NUL-terminated, so trace sites that
+// hand strings to a `const char*`-taking sink need a terminated form.
+template <typename T>
+struct type_name_buffer {
+    static constexpr auto kView = type_name<T>();
+    static constexpr auto make() {
+        std::array<char, kView.size() + 1> arr{};
+        for (std::size_t i = 0; i < kView.size(); ++i) {
+            arr[i] = kView[i];
+        }
+        arr[kView.size()] = '\0';
+        return arr;
+    }
+    static constexpr auto kStorage = make();
+};
+
+} // namespace detail
+
+// Per-type NUL-terminated `const char*` form of `type_name<T>()`.
+template <typename T>
+constexpr const char* type_name_cstr() {
+    return detail::type_name_buffer<T>::kStorage.data();
 }
 
 template <typename Derived>

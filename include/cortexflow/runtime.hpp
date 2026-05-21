@@ -5,6 +5,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdio>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -350,6 +351,36 @@ private:
 
     void dispatch(Envelope& env) {
         type_id_t to = env.to();
+        // Resolve `from` and `to` to printable names once per envelope.
+        // `kNoSender` (foreign-thread / boundary post) renders as `-`; an
+        // id present in the `ModuleList` renders as that module's
+        // `kName`; anything else (including the `kSystemSender`
+        // flow-init sentinel) renders as `unknown:<hex>` so the trace
+        // log is still debuggable. Module names live in static
+        // `type_name_cstr<>()` storage; the hex fallback uses a stack
+        // buffer that survives the trace_emit call below.
+        char from_buf[40];
+        char to_buf[40];
+        char type_buf[48];
+        const char* from_name =
+            resolve_sender_name(env.from(), from_buf, sizeof(from_buf));
+        const char* to_name = nullptr;
+        const char* type_label = nullptr;
+        resolve_target(*modules_,
+                       std::make_index_sequence<kNumModules>{},
+                       to, env.payload_type_id(), to_name, type_label);
+        if (to_name == nullptr) {
+            std::snprintf(to_buf, sizeof(to_buf), "unknown:%llx",
+                          static_cast<unsigned long long>(to));
+            to_name = to_buf;
+        }
+        if (type_label == nullptr) {
+            std::snprintf(type_buf, sizeof(type_buf), "type:%llx",
+                          static_cast<unsigned long long>(env.payload_type_id()));
+            type_label = type_buf;
+        }
+        CORTEXFLOW_TRACE_DISPATCH(
+            "envelope", from_name, to_name, type_label, "");
         bool dispatched = false;
         dispatch_one(*modules_,
                      std::make_index_sequence<kNumModules>{},
@@ -365,6 +396,55 @@ private:
             if (!dispatched && mod.module_type_id() == to) {
                 mod.handle(env);
                 dispatched = true;
+            }
+        };
+        (try_one(std::get<Is>(t)), ...);
+    }
+
+    const char* resolve_sender_name(type_id_t id,
+                                    char* buf, std::size_t buf_size) const {
+        if (id == kNoSender) {
+            return "-";
+        }
+        const char* resolved = nullptr;
+        resolve_sender_name_one(*modules_,
+                                std::make_index_sequence<kNumModules>{},
+                                id, resolved);
+        if (resolved != nullptr) {
+            return resolved;
+        }
+        std::snprintf(buf, buf_size, "unknown:%llx",
+                      static_cast<unsigned long long>(id));
+        return buf;
+    }
+
+    template <typename Tuple, std::size_t... Is>
+    void resolve_sender_name_one(const Tuple& t, std::index_sequence<Is...>,
+                                 type_id_t id,
+                                 const char*& out) const {
+        auto try_one = [&](const auto& mod) {
+            using ModT = std::decay_t<decltype(mod)>;
+            if (out == nullptr && mod.module_type_id() == id) {
+                out = type_name_cstr<ModT>();
+            }
+        };
+        (try_one(std::get<Is>(t)), ...);
+    }
+
+    // Resolve both `to` (module-name) and the payload type-name in one
+    // walk of the ModuleList: the matching module is the only one that
+    // can answer the payload-name lookup, so colocating the search keeps
+    // the per-envelope cost a single pass over the (always small) tuple.
+    template <typename Tuple, std::size_t... Is>
+    void resolve_target(const Tuple& t, std::index_sequence<Is...>,
+                        type_id_t to_id, type_id_t payload_id,
+                        const char*& to_name,
+                        const char*& payload_name) const {
+        auto try_one = [&](const auto& mod) {
+            using ModT = std::decay_t<decltype(mod)>;
+            if (to_name == nullptr && mod.module_type_id() == to_id) {
+                to_name = type_name_cstr<ModT>();
+                payload_name = mod.trace_payload_name(payload_id);
             }
         };
         (try_one(std::get<Is>(t)), ...);

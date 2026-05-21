@@ -9,6 +9,7 @@
 
 #include <cortexflow/assert.hpp>
 #include <cortexflow/messaging.hpp>
+#include <cortexflow/trace.hpp>
 #include <cortexflow/type_name.hpp>
 
 namespace cortexflow {
@@ -23,6 +24,18 @@ public:
     virtual void on_flow_done() {}
 
     virtual type_id_t module_type_id() const = 0;
+
+    // Resolve the printable name of a payload type the module accepts. Used
+    // by the DISPATCH-level trace at the runtime dispatch site. Returns
+    // nullptr if the type is not in the module's `Inbox` or opt-in
+    // `TraceTypes` declaration; the runtime then falls back to a hex
+    // rendering of the type id. Modules can extend coverage by declaring
+    // `using TraceTypes = std::tuple<...>` alongside `Inbox` — names
+    // listed there are reported even when the module's own `handle`
+    // dispatches manually (e.g. through a `Flow`).
+    virtual const char* trace_payload_name(type_id_t) const noexcept {
+        return nullptr;
+    }
 
     void bind_post(PostFn fn, void* ctx) {
         post_fn_ = fn;
@@ -109,6 +122,76 @@ struct DispatchTable<Derived, std::tuple<>> {
     static constexpr std::size_t kSize = 0;
 };
 
+// Per-module name lookup table for the DISPATCH-level trace. Walked once
+// per envelope; covers any type listed in `Inbox` (so Inbox-driven
+// modules need no extra work) and any extra type listed in the optional
+// `TraceTypes` typedef on the module (so Flow-driven modules can still
+// surface human-readable names without going through the dispatch table).
+template <typename T, typename = void>
+struct trace_types_of {
+    using type = std::tuple<>;
+};
+
+template <typename T>
+struct trace_types_of<T, std::void_t<typename T::TraceTypes>> {
+    using type = typename T::TraceTypes;
+};
+
+template <typename T>
+using trace_types_of_t = typename trace_types_of<T>::type;
+
+struct TraceNameEntry {
+    type_id_t msg_type_id;
+    const char* name;
+};
+
+template <typename...>
+struct TraceNameTableFrom;
+
+template <typename... Ts>
+struct TraceNameTableFrom<std::tuple<Ts...>> {
+    static constexpr std::size_t kSize = sizeof...(Ts);
+    static constexpr TraceNameEntry kEntries[sizeof...(Ts) > 0
+                                             ? sizeof...(Ts) : 1] = {
+        { type_id<Ts>(), type_name_cstr<Ts>() }...
+    };
+};
+
+// Specialisation for the empty case keeps the entries array at size 1 to
+// remain a valid C++ aggregate (zero-length arrays are non-standard); the
+// `kSize == 0` guard at the lookup site keeps the placeholder unused.
+template <>
+struct TraceNameTableFrom<std::tuple<>> {
+    static constexpr std::size_t kSize = 0;
+    static constexpr TraceNameEntry kEntries[1] = {{0, nullptr}};
+};
+
+template <typename... Tuples>
+struct concat_tuples;
+
+template <>
+struct concat_tuples<> {
+    using type = std::tuple<>;
+};
+
+template <typename... Ts>
+struct concat_tuples<std::tuple<Ts...>> {
+    using type = std::tuple<Ts...>;
+};
+
+template <typename... Ts1, typename... Ts2, typename... Rest>
+struct concat_tuples<std::tuple<Ts1...>, std::tuple<Ts2...>, Rest...> {
+    using type = typename concat_tuples<
+        std::tuple<Ts1..., Ts2...>, Rest...>::type;
+};
+
+template <typename Derived>
+struct TraceNameTable {
+    using types = typename concat_tuples<
+        typename Derived::Inbox, trace_types_of_t<Derived>>::type;
+    using table = TraceNameTableFrom<types>;
+};
+
 } // namespace detail
 
 // Module<Derived, ModuleListT>
@@ -139,6 +222,18 @@ public:
 
     type_id_t module_type_id() const override {
         return Identified<Derived>::kTypeId;
+    }
+
+    const char* trace_payload_name(type_id_t id) const noexcept override {
+        using Table = typename detail::TraceNameTable<Derived>::table;
+        if constexpr (Table::kSize > 0) {
+            for (std::size_t i = 0; i < Table::kSize; ++i) {
+                if (Table::kEntries[i].msg_type_id == id) {
+                    return Table::kEntries[i].name;
+                }
+            }
+        }
+        return nullptr;
     }
 
 protected:

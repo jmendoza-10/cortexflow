@@ -12,6 +12,7 @@
 #include <cortexflow/assert.hpp>
 #include <cortexflow/messaging.hpp>
 #include <cortexflow/subscription.hpp>
+#include <cortexflow/trace.hpp>
 #include <cortexflow/type_name.hpp>
 
 namespace cortexflow {
@@ -62,6 +63,31 @@ struct key_of<Owned<K, M>> { using type = K; };
 
 template <typename T>
 using key_of_t = typename key_of<T>::type;
+
+// Static lookup of the owner module type for a given cache key, by
+// walking `CacheKeyList<Entries...>` for the matching `Owned<K, Owner>`.
+// Returns the printable owner module name for the trace, or `"-"` if the
+// key was declared without an `Owned<>` wrapper. Resolution is purely
+// type-level — no runtime registry — matching the cache's existing
+// `Owned<K, M>` documentation convention (architecture §7.4).
+template <typename Target, typename List>
+struct owner_lookup;
+
+template <typename Target>
+struct owner_lookup<Target, CacheKeyList<>> {
+    static constexpr const char* name() { return "-"; }
+};
+
+template <typename Target, typename First, typename... Rest>
+struct owner_lookup<Target, CacheKeyList<First, Rest...>>
+    : owner_lookup<Target, CacheKeyList<Rest...>> {};
+
+template <typename Target, typename Owner, typename... Rest>
+struct owner_lookup<Target, CacheKeyList<Owned<Target, Owner>, Rest...>> {
+    static constexpr const char* name() {
+        return type_name_cstr<Owner>();
+    }
+};
 
 template <typename K>
 struct Slot {
@@ -124,6 +150,18 @@ public:
         }
         std::optional<typename K::value_type> old = slot.value;
         slot.value = std::move(value);
+        // FULL-level trace for the committed cache write — emitted *before*
+        // the KeyChanged fan-out so the trace order matches the causal
+        // order (write → notify) the runtime guarantees. The "from" slot
+        // carries the declared key owner module name (from the
+        // `Owned<K, Owner>` wrapper in CacheKeyList) or "-" when the key
+        // is declared without an Owned<> wrapper. The local indirection
+        // through `owner_name` keeps the comma inside the template
+        // argument list out of the macro's argument parser.
+        const char* owner_name =
+            detail::owner_lookup<K, CacheKeyListT>::name();
+        CORTEXFLOW_TRACE_FULL(
+            "cache_write", owner_name, "-", type_name_cstr<K>(), "");
         fanout<K>(old, *slot.value);
     }
 

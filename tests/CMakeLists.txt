@@ -123,6 +123,19 @@ target_link_libraries(test_button_pipeline PRIVATE button_pipeline_lib doctest)
 
 add_test(NAME button_pipeline COMMAND test_button_pipeline)
 
+# Trace-stream pinning against the same composition: drives one canonical
+# scenario at trace level FULL (CI matrix) and asserts the expected
+# event-kind sequence is present, in causal order, with recognisable
+# name substrings — the regression net that catches the failure mode
+# called out in the 2026-05-21 reviewer comment.
+add_executable(test_button_pipeline_trace
+    integration/test_button_pipeline_trace.cpp
+)
+target_link_libraries(test_button_pipeline_trace
+    PRIVATE button_pipeline_lib doctest)
+
+add_test(NAME button_pipeline_trace COMMAND test_button_pipeline_trace)
+
 # No-target-ifdefs guard: PRD US 44 — "the same module code runs on every
 # supported environment without `#ifdef` walls in module code." Grep the
 # public headers, core sources, and the cross-target test for any
